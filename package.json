@@ -1,0 +1,44 @@
+{
+  "name": "molio2-editor",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Desktop viewer and editor for Molio 2.0 specification files",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "predev": "npm run build -w @molio2-editor/core",
+    "dev": "npm run dev -w @molio2-editor/app",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run build -w @molio2-editor/core && node scripts/test-with-rebuild.cjs",
+    "test:raw": "npm run build -w @molio2-editor/core && npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "rebuild-native": "npm run rebuild-native -w @molio2-editor/app",
+    "package": "npm run build -w @molio2-editor/core && npm run package -w @molio2-editor/app",
+    "package:mac": "npm run build -w @molio2-editor/core && npm run package:mac -w @molio2-editor/app",
+    "package:win": "npm run build -w @molio2-editor/core && npm run package:win -w @molio2-editor/app",
+    "package:linux": "npm run build -w @molio2-editor/core && npm run package:linux -w @molio2-editor/app",
+    "package:dir": "npm run build -w @molio2-editor/core && npm run package:dir -w @molio2-editor/app"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "electron": "^41.7.2",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.4",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.61.0"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

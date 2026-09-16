@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content Security Policy.
+
+      img-src adds:
+        - `data:`  — so inserted images (stored as `data:image/...;base64,...`
+                     inside the .moliospec) render correctly. The sanitizer
+                     whitelists only png/jpeg/gif/webp data URLs (no SVG),
+                     which blocks the common data-URL XSS vectors.
+        - `blob:`  — used transiently by the image-insert pipeline:
+                     `URL.createObjectURL(file)` produces a `blob:` URL that
+                     we load into an `<Image>` element and draw onto a canvas
+                     for resize + re-encode. Without `blob:` here, the
+                     browser refuses to load the object URL and the
+                     processing pipeline throws
+                     "Error: Image failed to load" (6L.5a-γ3 bugfix).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;"
+    />
+    <title>Spec Editor</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

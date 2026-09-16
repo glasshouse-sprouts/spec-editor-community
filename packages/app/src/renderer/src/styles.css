@@ -1,0 +1,6914 @@
+/* Minimal, clean, Linear/Notion-ish. Single file for now; no CSS framework. */
+
+:root {
+  /* Light-only palette inspired by the Claude desktop app: very warm
+   * off-white page, slightly darker cream sidebar/elevated surfaces,
+   * coral accent, near-black text. Claude's feel is content-led — thin
+   * borders, generous whitespace, almost no card chrome. */
+  color-scheme: light;
+  /* FONT slice 2026-05-12: bundled Open Sans loaded via @font-face
+   * (see main.tsx imports) so editor + exported PDFs use the same
+   * typeface. System fonts kept as fallback in case the web-font
+   * fetch races the first paint or the user's renderer disables
+   * external resources. */
+  font-family:
+    "Open Sans",
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+
+  /* Page surface + elevated. The elev tone is the sidebar/header cream
+   * the Claude app uses; it reads as slightly recessed against white
+   * content rather than as a distinct card. */
+  --c-bg: #faf9f5;
+  --c-bg-elev: #f0eee6;
+  /* Content-body background. In Claude-style we let the body breathe on
+   * the same surface as the page, so this is equal to --c-bg. Kept as a
+   * separate var so we can reintroduce a card treatment later without
+   * touching every rule. */
+  --c-body-bg: #faf9f5;
+  --c-border: #e8e6dc;
+  --c-border-strong: #d8d5c7;
+  --c-text: #141413;
+  --c-text-muted: #706f6c;
+  /* Accent: green #65b144. Strong = darker hover/active variant. Soft
+   * = the tinted background used for selection highlights. */
+  --c-accent: #65b144;
+  --c-accent-strong: #4c8533;
+  --c-accent-soft: rgba(101, 177, 68, 0.12);
+  --c-hover: rgba(20, 20, 19, 0.04);
+  --c-code-bg: #efece0;
+
+  /* Reference panel width — shared by the standard-mode side column, the
+   * right column of aligned mode, and the right cell of the unified
+   * sticky header. Using one variable means switching reference type
+   * never shifts the layout sideways. */
+  --ref-panel-width: 320px;
+
+  /* Height used by the TOC filter row AND the spec-main header bar so
+   * both sticky headers line up visually across the three columns. */
+  --spec-header-height: 56px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--c-code-bg);
+}
+
+.path {
+  word-break: break-all;
+}
+
+/*
+ * The file path in the project-overview metadata card: folder on the
+ * first line, filename on the second.
+ *
+ * Separate from `.path` on purpose. `.path` is also used by the
+ * import dialog, where the full path stays on show and the layout is
+ * a modal rather than a narrow card — editing `.path` would reformat
+ * that dialog as a side effect.
+ *
+ * The split exists so the two halves can be truncated from OPPOSITE
+ * ENDS. Wrapping the path as one run and cutting the overflow gets
+ * this exactly backwards: it drops the tail, and the tail is the
+ * filename — the one part the user actually needs.
+ */
+.path-split {
+  display: block;
+}
+
+/*
+ * The folder, truncated from the LEFT: "…/GitHub/project/samples/".
+ * The top of a path is the least interesting part of it.
+ *
+ * `text-overflow: ellipsis` always cuts at the END of the line, so
+ * the trick is to flip the line: `direction: rtl` puts the overflow
+ * on the left, and `text-align: left` keeps a short path sitting
+ * where you expect it. The <bdi> around the text is what stops the
+ * flip from also reordering the slashes — it isolates the path as one
+ * left-to-right run inside a right-to-left box.
+ *
+ * Muted, because it is the part you skim rather than read.
+ */
+.path-split__dir {
+  display: block;
+  direction: rtl;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-text-muted);
+}
+
+/* The filename, on its own line and never dropped. Truncated from the
+ * right in the ordinary way, which only bites on a genuinely enormous
+ * filename. */
+.path-split__name {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------- app shell ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---------- Windows title strip (Task 64) ---------- */
+
+/*
+ * Only rendered on Windows — see WindowTitleBar.tsx. The main
+ * process hands us this strip via `titleBarOverlay`; Windows keeps
+ * drawing minimise / maximise / close on the right, and we fill the
+ * left and the middle.
+ *
+ * `-webkit-app-region: drag` is what makes the strip behave like a
+ * real title bar: drag the window, double-click to maximise, snap to
+ * a screen edge. Anything clickable inside MUST set `no-drag` or the
+ * click never reaches it.
+ *
+ * The height matches `WIN_TITLEBAR.height` in main/index.ts. If you
+ * change one, change the other, or the strip and the OS buttons stop
+ * lining up.
+ */
+.win-titlebar {
+  /* Fallback: 100% of the strip. Overridden inline with the exact
+   * width not covered by the window buttons when
+   * `navigator.windowControlsOverlay` is available. */
+  --win-titlebar-area: 100%;
+
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 40px;
+  flex-shrink: 0;
+  padding-left: 6px;
+  background: var(--c-bg-elev);
+  /* Without a line here the strip and the header below it share a
+   * background and read as one 82px block.
+   *
+   * --c-border-strong, not --c-border: the lighter one is too faint to
+   * do the job. Deliberately NOT a dark grey, though. The header's own
+   * bottom border separates the window chrome from the CONTENT, and a
+   * divider sitting inside the chrome should not out-weigh it —
+   * inverting that hierarchy is what makes a surface look busy rather
+   * than crisp. If this line is ever darkened, darken the header's to
+   * match, and note that the header's border is not Windows-only. */
+  border-bottom: 1px solid var(--c-border-strong);
+  -webkit-app-region: drag;
+  /* Text inside a drag region can't be selected anyway; saying so
+   * explicitly stops the cursor flickering to an I-beam. */
+  user-select: none;
+}
+
+.win-titlebar__menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-text);
+  cursor: pointer;
+  /* Without this the drag region swallows the click. */
+  -webkit-app-region: no-drag;
+}
+
+.win-titlebar__menu:hover {
+  background: var(--c-hover);
+}
+
+/*
+ * Centred title. Absolutely positioned so it centres on the STRIP
+ * rather than on the flex row — otherwise the hamburger's width
+ * would push it right.
+ *
+ * `--win-titlebar-area` is the width Windows has left us. Centring
+ * inside that (rather than inside the whole window) is what keeps
+ * the title optically centred once the ~138 px of window buttons on
+ * the right are accounted for.
+ */
+.win-titlebar__title {
+  position: absolute;
+  left: 0;
+  width: var(--win-titlebar-area);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+  pointer-events: none;
+}
+
+/* Long project names get an ellipsis rather than colliding with the
+ * window buttons. The 2 x 44px keeps clear of the hamburger on the
+ * left and leaves symmetrical breathing room on the right. */
+.win-titlebar__title-text {
+  max-width: calc(100% - 88px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg-elev);
+  flex-shrink: 0;
+}
+
+.app__header h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app__header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* MAPI7 — license status pill in the top header. Sits right next
+ *  to the project title. Three flavors:
+ *    - .license-pill--ok      green, small, fades after a moment
+ *    - .license-pill--warn    amber, sticky until dismissed
+ *    - .license-pill--error   red, sticky until dismissed
+ *  Task 79: clicking a warn/error pill explains the state — either
+ *  the license dialog or the sign-in dialog, depending on which of
+ *  the four states it is. It no longer dismisses for the session. */
+.license-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: default;
+  white-space: nowrap;
+}
+button.license-pill {
+  cursor: pointer;
+}
+.license-pill--ok {
+  color: #166534; /* green-800 */
+  background: #dcfce7; /* green-100 */
+  border-color: #86efac; /* green-300 */
+  animation: license-pill-fade-in 0.18s ease-out;
+}
+/* Task 79 — the "everything is fine" state after the label has faded.
+ * Shrunk to a dot so it stays available without taking up toolbar
+ * space. Still a button: clicking it says so in words.
+ *
+ * Task 99 — the dot needs its OWN fill, not the pill's. The pill's
+ * `#dcfce7` is a faint wash behind dark green TEXT, and the text is
+ * what carries the colour signal. With the text gone there is nothing
+ * left to carry it, and a near-white dot on the cream header
+ * (`--c-bg-elev`, #f0eee6) is all but invisible. So: the app's accent
+ * green as the fill, with a darker edge to separate it from the
+ * cream. `.license-pill--ok` is untouched - it is correct as a pill. */
+.license-pill--dot {
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border-radius: 50%;
+  animation: none;
+  background: var(--c-accent); /* #65b144 */
+  border-color: #4e8b34; /* one step darker than the fill */
+}
+.license-pill--warn {
+  color: #92400e; /* amber-800 */
+  background: #fef3c7; /* amber-100 */
+  border-color: #fcd34d; /* amber-300 */
+}
+.license-pill--error {
+  color: #991b1b; /* red-800 */
+  background: #fee2e2; /* red-100 */
+  border-color: #fca5a5; /* red-300 */
+}
+button.license-pill--warn:hover,
+button.license-pill--error:hover {
+  filter: brightness(0.97);
+}
+@keyframes license-pill-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Slice "Version compare" — banner shown beneath the top header
+ * whenever a Version reference file is loaded. Subtle stripe so it
+ * doesn't compete with the spec content but the user can always see
+ * "this app is in compare mode". The clear button lives on the right.
+ */
+.reference-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  background: rgba(20, 110, 220, 0.08);
+  border-bottom: 1px solid rgba(20, 110, 220, 0.18);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.reference-banner__label {
+  font-weight: 600;
+  opacity: 0.85;
+}
+.reference-banner__name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+}
+.reference-banner__project {
+  opacity: 0.7;
+}
+.reference-banner__clear {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.75;
+}
+.reference-banner__clear:hover {
+  background: rgba(0, 0, 0, 0.06);
+  opacity: 1;
+}
+
+/* RELOAD-2 — banner shown when the open file was changed on disk by
+ * another program. Amber so it reads as a "heads up", distinct from
+ * the blue reference banner. The Reload button + dismiss live on the
+ * right. */
+.disk-change-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  background: rgba(217, 119, 6, 0.12);
+  border-bottom: 1px solid rgba(217, 119, 6, 0.3);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.disk-change-banner__label {
+  font-weight: 600;
+  opacity: 0.9;
+}
+.disk-change-banner__reload {
+  margin-left: auto;
+  padding: 3px 10px;
+  background: rgba(217, 119, 6, 0.18);
+  border: 1px solid rgba(217, 119, 6, 0.45);
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  color: inherit;
+}
+.disk-change-banner__reload:hover {
+  background: rgba(217, 119, 6, 0.28);
+}
+.disk-change-banner__dismiss {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.75;
+}
+.disk-change-banner__dismiss:hover {
+  background: rgba(0, 0, 0, 0.06);
+  opacity: 1;
+}
+
+/* RELOAD-Merge M3 — the Merge dialog. */
+/* `.modal.` prefix raises specificity above the base `.modal` rule
+ * (which is defined later in this file with max-width: 480px). */
+.modal.merge-modal {
+  max-width: 780px;
+}
+/* With conflicts the dialog hosts side-by-side comparisons — give it
+ * 80% of the window and let the conflict list flex to fill. */
+.modal.merge-modal--wide {
+  width: 80vw;
+  max-width: 80vw;
+  height: 80vh;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.merge-modal--wide .merge-modal__conflicts {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.merge-modal--wide .merge-conflict__col-body {
+  max-height: 42vh;
+}
+.merge-modal--wide .merge-conflict__draft .section-editor__content {
+  max-height: 48vh;
+}
+.merge-modal__auto {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.merge-modal__link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.merge-modal__auto-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  max-height: 120px;
+  overflow: auto;
+}
+/* RELOAD-Merge — "the disk also added/removed this" notice. */
+.merge-modal__disk {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  background: var(--c-bg-elev);
+}
+.merge-modal__disk-intro {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.merge-modal__disk-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  max-height: 120px;
+  overflow: auto;
+}
+.merge-modal__disk-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+}
+.merge-modal__disk-tag {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.merge-modal__disk-item--add .merge-modal__disk-tag {
+  color: #166534;
+  background: #dcfce7;
+}
+.merge-modal__disk-item--remove .merge-modal__disk-tag {
+  color: #991b1b;
+  background: #fee2e2;
+}
+.merge-modal__heading {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 6px;
+}
+
+/* RELEASE-A6 — Glasshouse sign-in dialog. */
+.glasshouse-signin__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+.glasshouse-signin__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.glasshouse-signin__field input {
+  padding: 6px 8px;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  font: inherit;
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+.glasshouse-signin__field input:focus {
+  outline: 2px solid var(--c-border-strong);
+  outline-offset: -1px;
+}
+.glasshouse-signin__field input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.glasshouse-signin__error {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 12px;
+}
+/* RELEASE-A-SIGNUP — "Create account" link, deliberately secondary
+ *  to the Sign in button: most users signing in already have one. */
+.glasshouse-signin__signup {
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: 12px;
+}
+.glasshouse-signin__signup a {
+  color: var(--c-text-muted);
+}
+/* RELEASE-A-SIGNUP — waiting state ("check your email") after an
+ *  unconfirmed 401. */
+.glasshouse-signin__waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+.glasshouse-signin__waiting-email {
+  margin: -6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+/* RELEASE-A7 — Glasshouse account section in Settings. */
+.glasshouse-account {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.glasshouse-account__line {
+  margin: 0;
+  font-size: 13px;
+}
+.glasshouse-account__line--muted {
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+.glasshouse-account__actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+}
+/* RELEASE-A-UX2 — inline "Sign in" button in the reference panel
+ *  when the panel can't load content because no one's signed in. */
+.ref-panel__no-config {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.ref-panel__sign-in-link {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.ref-panel__sign-in-link:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+.merge-modal__no-conflicts {
+  font-size: 13px;
+  opacity: 0.8;
+}
+.merge-modal__conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow: auto;
+}
+.merge-conflict {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.merge-conflict__label {
+  font-weight: 600;
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+
+/* Side-by-side comparison: two columns, each showing one version
+ * with the words unique to it coloured (via compare/htmlDiff). */
+.merge-conflict__compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.merge-conflict__col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.merge-conflict__col-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 3px;
+}
+.merge-conflict__col-label--mine {
+  color: #16a34a;
+}
+.merge-conflict__col-label--theirs {
+  color: #b45309;
+}
+.merge-conflict__col-body {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 220px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.015);
+}
+.merge-conflict__col-body p {
+  margin: 0 0 6px;
+}
+.merge-conflict__empty {
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+/* The three-way choice row. */
+.merge-conflict__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.merge-conflict__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+/* The merged-draft editor (shown when "Edit a merged draft" is on). */
+.merge-conflict__draft {
+  margin-top: 8px;
+}
+.merge-conflict__draft-hint {
+  font-size: 11.5px;
+  color: var(--c-text-muted);
+  margin-bottom: 4px;
+}
+/* The draft editor for a section is the app's normal SectionEditor.
+ * Cancel its negative "overlap the read view" margins (there is no
+ * read view here) and cap its height so one conflict can't dominate
+ * the dialog. */
+.merge-conflict__draft .section-editor {
+  margin: 0;
+}
+.merge-conflict__draft .section-editor__content {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.merge-conflict__draft-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(22, 163, 74, 0.55);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+
+/* Give the Cancel / Apply footer clear separation from the conflict
+ * list above it. */
+.merge-modal .modal__actions {
+  margin-top: 16px;
+}
+
+/* Slice "Version compare" — Git-compare icon button shows a green
+ * active state when a Version reference is loaded. Tied to the
+ * `is-reference-loaded` modifier rather than the generic `is-on`
+ * class print-toggle uses, so the two stay visually distinct.
+ */
+.btn-icon.is-reference-loaded {
+  background: rgba(22, 163, 74, 0.12);
+  border-color: rgba(22, 163, 74, 0.55);
+  color: #16a34a;
+}
+.btn-icon.is-reference-loaded:hover {
+  background: rgba(22, 163, 74, 0.18);
+}
+
+/* Slice "Version compare" — Revisions tab spec headers + the
+ * single-line "whole spec added/deleted" row.
+ */
+.revisions-spec-header {
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  padding-bottom: 0.25rem;
+  margin: 0.75rem 0 0.5rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+.revisions-spec-header__parent {
+  opacity: 0.6;
+  font-weight: 400;
+  font-size: 0.875rem;
+}
+.revisions-spec-header__count {
+  margin-left: 0.25rem;
+  opacity: 0.6;
+  font-weight: 400;
+  font-size: 0.8125rem;
+}
+.revisions-wholespec {
+  padding: 0.375rem 0.5rem;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  font-size: 0.875rem;
+}
+.revisions-filter:focus {
+  outline: 2px solid rgba(20, 110, 220, 0.4);
+  outline-offset: 1px;
+}
+
+/* Slice "Version compare" — Settings dialog "diff formatting" rows.
+ * Each row is one DiffMarkKind with its toggles + color pickers.
+ */
+.settings-section {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  padding: 0.75rem 1rem 1rem;
+  margin: 0 0 1rem 0;
+}
+.settings-section__legend {
+  padding: 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.settings-section__hint {
+  margin: 0 0 0.75rem;
+  opacity: 0.7;
+  font-size: 0.8125rem;
+}
+.diff-format-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.375rem 0;
+  border-top: 1px dashed rgba(0, 0, 0, 0.06);
+}
+.diff-format-row:first-of-type {
+  border-top: none;
+}
+.diff-format-row__label {
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+.diff-format-row__preview {
+  font-size: 0.875rem;
+  padding: 2px 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.02);
+}
+.diff-format-row__controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.diff-format-toggle {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+.diff-format-toggle.is-on {
+  background: rgba(20, 110, 220, 0.12);
+  border-color: rgba(20, 110, 220, 0.45);
+}
+.diff-format-color {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.diff-format-color input[type="color"] {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+}
+.diff-format-color__clear {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: white;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Title slot in the top bar. Holds the project name plus the
+ * unsaved-changes dot sitting directly before it. Inline-flex so
+ * the dot and text align on the same baseline. (Polish pass
+ * 2026-04-22 — previously .app__sidebar-toggle + Molio brand h1
+ * lived here; the toggle now lives inside the sidebar itself.) */
+.app__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app__header-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* The unsaved-changes dot in the header. Small, orange, centered with
+ * the filename text. Also reused at a slightly larger scale in tabs. */
+.app__dirty-dot {
+  color: #e28a00;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.app__header button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.app__header button:disabled:hover {
+  background: var(--c-bg);
+}
+
+/* The house style for buttons in the top bar.
+ *
+ * Task 101 (2026-09-05) — `.license-pill` is excluded, and that
+ * exclusion is the whole fix for a bug that got three wrong
+ * diagnoses.
+ *
+ * The licence pill is a <button> and it sits in the header, so this
+ * rule matched it. `.app__header button` has specificity (0,1,1);
+ * `.license-pill--dot` has (0,1,0). The general rule wins, and it is
+ * 600 lines further down the file, so it would also win on a tie.
+ * It overrode the fill, the padding, the border-radius and the
+ * border colour all at once — which is why the "green dot" came out
+ * near-white, oblong and 26x12 instead of a round green 10x10.
+ *
+ * The bigger finding: it also overrode `--ok`, `--warn` and
+ * `--error`. THE FULL PILL HAS NEVER BEEN GREEN either. Only its
+ * text was, because this rule sets no colour. Nobody stopped,
+ * because it looks green enough for the four seconds it is up.
+ *
+ * This is the fourth time this rule has caught something it was not
+ * aimed at. See `LicenseInfoDialog.tsx`, which had to be moved into
+ * a portal to escape it, and `.btn-compact.is-on` below, whose
+ * hover rule exists to undo it. The fix is to stop the overlap
+ * rather than pile another layer on top.
+ *
+ * NOT caught by the test suite, and cannot be: the tests render
+ * without a stylesheet, so a colour that loses in the cascade looks
+ * identical to one that wins. This one is checked by looking at it.
+ */
+.app__header button:not(.license-pill) {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-bg);
+  cursor: pointer;
+}
+
+/* Excluded here too. This rule ties with `button.license-pill--warn:hover`
+ * on specificity and sits later in the file, so without the exclusion
+ * hovering the pill would still wash it grey. */
+.app__header button:not(.license-pill):hover {
+  background: var(--c-hover);
+}
+
+/* Compact-view toggle: a small secondary button that lives left of
+ * "Save". Outlined when OFF (default state), filled when ON so the
+ * current mode is obvious at a glance. Uses the accent colour when
+ * active to match other "active state" pills in the UI.
+ *
+ * Task 115 (2026-09-08) — the `.app__header` prefix is load-bearing,
+ * do not remove it. Task 101 added `:not(.license-pill)` to the
+ * header button rule above, which lifted that rule from (0,1,1) to
+ * (0,2,1) and pushed it past the plain `.btn-compact.is-on` (0,2,0).
+ * The header rule then repainted the background back to `--c-bg`
+ * while `color: #fff` here survived, because the header rule sets no
+ * colour: white text on a near-white fill. The prefix makes this
+ * rule (0,3,0), which wins on specificity alone rather than on where
+ * it happens to sit in the file. Same for the hover pair below,
+ * where the header's `:hover` rule is (0,3,1). */
+.app__header .btn-compact.is-on {
+  background: var(--c-accent);
+  color: #fff;
+  border-color: var(--c-accent);
+}
+.app__header .btn-compact.is-on:hover {
+  /* Skip the generic hover grey — it washes out the accent fill. */
+  background: var(--c-accent);
+  filter: brightness(0.95);
+}
+
+/* ---------- Print-layout toggle (Slice 6P.1) ----------
+ *
+ * Single header button that toggles print layout on/off. Outlined
+ * when OFF (default), filled with the accent colour when ON — same
+ * visual language as .btn-compact so both toggles read as a pair.
+ */
+/* Generic "icon-only button in the top nav" class. Shared by the
+ * print-layout toggle and the Export-PDFs printer icon so every
+ * icon button in the header lines up the same way. */
+.btn-icon,
+.btn-print-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  line-height: 1;
+}
+/* `.app__header`-prefixed for the same reason as `.btn-compact.is-on`
+ * above — see the Task 115 note there. */
+.app__header .btn-print-toggle.is-on {
+  background: var(--c-accent);
+  color: #fff;
+  border-color: var(--c-accent);
+}
+.app__header .btn-print-toggle.is-on:hover {
+  /* Skip the generic hover grey — it would wash out the accent fill. */
+  background: var(--c-accent);
+  filter: brightness(0.95);
+}
+
+.app__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ---------- tab bar ---------- */
+
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 10px;
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
+  overflow-x: auto;
+  flex-shrink: 0;
+  min-height: 32px;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px 0 10px;
+  margin-top: 4px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  font-size: 12px;
+  max-width: 260px;
+  position: relative;
+  top: 1px; /* overlap the tabbar bottom border when active */
+}
+
+.tab.is-active {
+  background: var(--c-bg-elev);
+  border-color: var(--c-border);
+}
+
+.tab__label {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 4px;
+  color: var(--c-text-muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Project tab's label holds an icon + optional dirty-dot — use flex
+ * so the two sit on a shared baseline. Other tabs keep the default
+ * inline/block rendering so the `text-overflow: ellipsis` rule
+ * above still truncates long work-area names and the tab row stays
+ * within viewport width (otherwise the outer .tabbar would show a
+ * horizontal scrollbar). */
+.tab--project .tab__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Project tab uses a home icon instead of a word label. The icon
+ * inherits the muted/active colour from .tab__label above — the
+ * currentColor stroke on <HomeIcon /> picks it up automatically. */
+.tab__home-icon {
+  display: block;
+}
+
+/* Nudge the project tab so its home icon lines up middle-to-middle
+ * with the collapsed sidebar rail.
+ *
+ * Geometry: rail is 48px wide with 4px left padding and 36px-wide
+ * icon tiles, so rail icons are centered at x=22 from the viewport
+ * left. The home icon is 16px, so its left edge should be at x=14.
+ *
+ * Offsets currently in the flow for the first tab:
+ *   .tabbar padding-left = 10
+ *   .tab   padding-left  = X    (default 10)
+ *   .tab__label padding-left = Y (default 4)
+ * => icon-left = 10 + X + Y, and we need that to equal 14 → X+Y=4.
+ * The override below picks X=0, Y=4. It also zeros the right
+ * padding — the project tab has no close button, so the asymmetric
+ * default just wastes room on the right. */
+.tab--project {
+  padding-left: 0;
+  padding-right: 0;
+}
+.tab--project .tab__label {
+  /* Overrides padding from the base .tab__label rule so the icon
+   * lands on the target x=22 column (see geometry note above). */
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.tab.is-active .tab__label {
+  color: var(--c-text);
+  font-weight: 500;
+}
+
+.tab__close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--c-text-muted);
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.tab__close:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
+}
+
+/* Dirty-state dot rendered inside the tab label. Same orange as the
+ * header dot so the two cues match visually. */
+.tab__dirty {
+  color: #e28a00;
+  font-size: 9px;
+  margin-right: 4px;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
+/* ---------- Phase 6 Slice A debug control ---------- */
+/* Header "Mark tab dirty/clean (debug)" button. Dashed border marks it
+ * as a temporary dev affordance — real edit events replace it in 6B and
+ * this rule can then be deleted. */
+.app__debug-dirty {
+  border-style: dashed !important;
+  color: var(--c-text-muted);
+}
+
+.app__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-muted);
+}
+
+/* ---------- Welcome screen (idle-state landing page) ---------- */
+/* Big landing page shown when no file is open. See WelcomeScreen.tsx
+ * and task #161. Centered column so the content reads naturally on
+ * wide windows — max-width is just the inner column, the page itself
+ * still fills the available space. */
+.welcome-screen {
+  flex: 1;
+  display: flex;
+  /* `safe center` keeps the content centered when it fits, but falls back to
+   *  top-alignment when it is taller than the viewport - otherwise the top
+   *  (the title) is clipped and cannot be scrolled to. */
+  align-items: safe center;
+  justify-content: center;
+  padding: 40px 20px;
+  overflow-y: auto;
+}
+
+.welcome-screen__inner {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.welcome-screen__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.welcome-screen__subtitle {
+  margin: 0;
+  color: var(--c-text-muted);
+}
+
+.welcome-screen__subtitle code {
+  background: var(--c-bg-elev);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+/* The big open zone acts as both a button and a visual drop target.
+ * Dashed border makes the drop-zone affordance discoverable; the
+ * actual drag-and-drop handlers sit on the .app root in App.tsx. */
+.welcome-screen__open-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 20px;
+  background: var(--c-bg-elev);
+  border: 2px dashed var(--c-border-strong);
+  border-radius: 12px;
+  color: var(--c-text);
+  cursor: pointer;
+  font: inherit;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.welcome-screen__open-zone:hover,
+.welcome-screen__open-zone:focus-visible {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+  outline: none;
+}
+
+.welcome-screen__open-zone-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.welcome-screen__open-zone-hint {
+  font-size: 13px;
+  color: var(--c-text-muted);
+  text-align: center;
+}
+
+.welcome-screen__open-zone-hint code {
+  background: var(--c-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.95em;
+}
+
+/* IMP-API — "Start from scratch" button on the welcome screen.
+ * Smaller / less prominent than the open-zone since opening a
+ * file is the more common path. */
+.welcome-screen__scratch {
+  margin-top: 12px;
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  color: var(--c-text);
+  cursor: pointer;
+  font-size: 13px;
+  align-self: center;
+}
+.welcome-screen__scratch:hover,
+.welcome-screen__scratch:focus-visible {
+  border-color: var(--c-accent, #2563eb);
+  color: var(--c-accent, #2563eb);
+}
+
+/* Recent list ------------------------------------------------------ */
+.welcome-screen__recent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.welcome-screen__recent-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-text-muted);
+}
+
+.welcome-screen__recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.welcome-screen__recent-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-bg);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.welcome-screen__recent-row:hover {
+  border-color: var(--c-border-strong);
+  background: var(--c-bg-elev);
+}
+
+/* Left column: project name + filename stacked. min-width:0 lets the
+ * flex child shrink so its text truncates cleanly instead of pushing
+ * the time label off the right edge. */
+.welcome-screen__recent-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.welcome-screen__recent-primary {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-screen__recent-secondary {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Right column: "2 h ago" / "yesterday" / "22 Apr 2026". Muted and
+ * fixed-ish width so it doesn't wobble between rows. */
+.welcome-screen__recent-opened {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  white-space: nowrap;
+}
+
+/* Right-click context menu (Fjern fra listen) --------------------- */
+.welcome-screen__context-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 180px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.welcome-screen__context-menu-item {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--c-text);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.welcome-screen__context-menu-item:hover,
+.welcome-screen__context-menu-item:focus-visible {
+  background: var(--c-bg-elev);
+  outline: none;
+}
+
+.welcome-screen__context-menu-item--dismiss {
+  color: var(--c-text-muted);
+}
+
+.error {
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  padding: 12px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  color: inherit;
+}
+
+/* ---------- sidebar ---------- */
+
+.sidebar {
+  width: 280px;
+  min-width: 220px;
+  max-width: 380px;
+  border-right: 1px solid var(--c-border);
+  background: var(--c-bg-elev);
+  flex-shrink: 0;
+  /* Toolbar pinned at top, scroll area below — so the filter input stays
+   * visible while the user scrolls a long tree. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Phase 10 Slice 10C — embedded variant used by Project Overview's
+ * 2fr nav column. Drops the fixed width, right border, and elevated
+ * background so the sidebar fills whatever grid cell the parent gives
+ * it and blends with the Project Overview surface. The internal tree,
+ * filter and right-click menus are unchanged. */
+.sidebar--embedded {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  border-right: none;
+  background: transparent;
+  flex-shrink: 1;
+}
+
+.sidebar__filter-row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--c-border);
+  /* Match the rest of the sidebar's beige surface — no darker band
+   * around the filter row (polish pass 2026-04-22). */
+  background: transparent;
+}
+
+/* Collapse-the-sidebar button rendered to the left of the filter
+ * input. Mirrors the sidebar__toggle-all geometry so the filter row
+ * stays visually balanced. */
+.sidebar__collapse {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: var(--c-bg);
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__collapse:hover {
+  background: var(--c-hover);
+}
+
+.sidebar__collapse:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+/* Expand-the-sidebar button pinned to the top of the collapsed rail,
+ * directly above the home icon. Same 36x36 tile size as rail-item so
+ * the rail column stays aligned. */
+.sidebar__rail-collapse {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__rail-collapse:hover {
+  background: var(--c-hover);
+  color: inherit;
+}
+
+.sidebar__rail-collapse:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+/* Inside the sidebar tree the <code> element should read as plain
+ * text — same background, same font weight as the rest of the row.
+ * The global `code` rule (near the top of this file) still applies
+ * in editor content / modals / etc. (polish pass 2026-04-22). */
+.sidebar code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.sidebar__filter {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: var(--c-bg);
+  color: inherit;
+}
+
+.sidebar__filter:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+.sidebar__toggle-all {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: var(--c-bg);
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__toggle-all:hover {
+  background: var(--c-hover);
+}
+
+.sidebar__toggle-all:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.sidebar__toggle-all:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+/* #255 — "Skjul tomme" toggle. Small icon button; pressed state filled. */
+.sidebar__hide-empty {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: var(--c-bg);
+  color: inherit;
+  cursor: pointer;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__hide-empty:hover {
+  background: var(--c-hover);
+}
+
+.sidebar__hide-empty[aria-pressed="true"] {
+  background: var(--c-accent-soft);
+  border-color: var(--c-accent);
+}
+
+.sidebar__hide-empty:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+/* #255 — small muted "tom" marker on empty contracts / control plans. */
+.tree-empty-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--c-hover);
+  color: var(--c-text-muted);
+  font-size: 10px;
+  line-height: 16px;
+  vertical-align: middle;
+}
+
+.sidebar__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 6px;
+}
+
+.sidebar__group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-muted);
+  padding: 10px 10px 4px;
+  font-weight: 600;
+}
+
+.sidebar__empty {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  padding: 2px 28px;
+  font-style: italic;
+}
+
+/* Catch-all buckets in the sidebar tree — "[No work area]" and
+ * "[No BDB]" labels nested inside the [No contract] group. Same
+ * muted tone as sidebar__empty but slightly denser padding so
+ * they read as section markers, not row content. See Slice 6O.2. */
+.sidebar__homeless-label {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  padding: 4px 10px 2px;
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- Collapsed sidebar (icon rail) ----------
+ *
+ * VS Code-style thin column. Each button is a 36x36 square holding a
+ * short label (code or initials). Full name is in the title attribute,
+ * shown as a tooltip on hover. Clicking opens/focuses the corresponding
+ * tab, same as the expanded tree. */
+.sidebar--rail {
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Icons stack flush to the left edge of the rail — the rail is 48px
+   * wide and each tile is 36px, so left-aligning keeps the whole
+   * column visually anchored instead of floating in the middle. */
+  align-items: flex-start;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar__rail-sep {
+  width: 60%;
+  height: 1px;
+  background: var(--c-border);
+  margin: 4px 0;
+}
+
+.rail-item {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--c-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.rail-item:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
+}
+
+.rail-item.is-selected {
+  background: var(--c-accent-soft);
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+
+.rail-item--project {
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.rail-item.is-open {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+}
+
+/* Flyout that appears next to a rail button when the user clicks a
+ * work area or an unassigned BDB with children. Positioned with `fixed`
+ * so the rail's own overflow:auto can't clip it. */
+.rail-popout {
+  position: fixed;
+  z-index: 50;
+  min-width: 280px;
+  max-width: 360px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.rail-popout__top {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-popout__top:hover {
+  background: var(--c-hover);
+}
+
+.rail-popout__top.is-selected {
+  color: var(--c-accent);
+}
+
+/* Contract popout header — non-clickable. Two-line layout: a small
+ * caption-style contract code on top of the full contract name. Mirrors
+ * the `.rail-popout__top` bottom-border separator so the header visually
+ * parts from the work-area list beneath. */
+.rail-popout__header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 2px;
+  /* Not a tab target — no hover/pointer styling. */
+  cursor: default;
+  user-select: text;
+}
+
+.rail-popout__header-code {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--c-text-muted);
+  font-family: inherit;
+  line-height: 1;
+}
+
+.rail-popout__header-name {
+  font-weight: 600;
+  color: var(--c-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-popout__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.rail-popout__row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  /* Padding + font-size mirror `.tree-node` so the popout rows read
+   * identically to the expanded sidebar (same row height, same type). */
+  padding: 3px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-popout__row:hover {
+  background: var(--c-hover);
+}
+
+.rail-popout__row.is-selected {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  font-weight: 500;
+}
+
+.rail-popout__empty {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  min-height: 26px;
+}
+
+.tree-toggle {
+  width: 18px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--c-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tree-toggle:disabled,
+.tree-toggle--leaf {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.tree-node {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-node:hover {
+  background: var(--c-hover);
+}
+
+.tree-node.is-selected {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  font-weight: 500;
+}
+
+.tree-node--project {
+  display: block;
+  width: 100%;
+  font-weight: 600;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+}
+
+/* Slice 10K.8 follow-up — make the contract header stand out as the
+ * top-level grouping in the tree. Bolder than work areas / BDBs, and
+ * with a small top gap so each contract section reads as a distinct
+ * block rather than a flat list. The first contract in the tree gets
+ * the same top margin — creates breathing room under whatever sits
+ * above (filter input, project node, or the empty tree top). */
+.tree-node--contract-header {
+  font-weight: 700;
+}
+
+.tree-row--contract {
+  margin-top: 10px;
+}
+
+/* Slice 6M — buffered container deletes. Row is visually marked as
+ * doomed (strikethrough + muted) but still clickable so the user can
+ * open it and see the placeholder / Restore action. */
+.tree-node--pending-delete {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  border-radius: 3px;
+  background: var(--c-code-bg);
+  color: var(--c-text-muted);
+  vertical-align: middle;
+}
+
+/* Slice 10H.1 — PFBB + work-area-type pills.
+ *
+ * Coloured chips next to the BDB / work-area name in the sidebar that
+ * surface "this row has special Molio semantics".  Four flavours:
+ *
+ *   .pill--master     PFBB master (construction_element_spec.is_pfbb = 1)
+ *   .pill--child      Subscriber BDB (pfbb_id points at a master)
+ *   .pill--faelles    work_spec.work_area_type = 1 (Fælles beskrivelse)
+ *   .pill--paradigme  work_spec.work_area_type = 2 (Paradigme)
+ *
+ * Colours are intentionally muted so they read as metadata, not as a
+ * call-to-action. All four chips share the .pill base so spacing is
+ * consistent. Tooltips (native title="") explain the meaning on hover.
+ */
+.pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 3px;
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.pill--master {
+  background: #ece3f6;
+  color: #5a3d8a;
+  border: 1px solid #d6c6ec;
+}
+.pill--child {
+  background: #f4eff9;
+  color: #6e5495;
+  border: 1px solid #e3d7f1;
+}
+.pill--faelles {
+  background: #e3ecf5;
+  color: #2f5a86;
+  border: 1px solid #c9d9ea;
+}
+.pill--paradigme {
+  background: #f7ecd4;
+  color: #8a6a22;
+  border: 1px solid #ecd9a8;
+}
+.pill--warning {
+  background: #fbe6d4;
+  color: #8a4a1a;
+  border: 1px solid #eec9a0;
+}
+
+/* ---------- main pane ----------
+ *
+ * The <main> wrapper is just a flex row; its children choose their own
+ * layout (single scrollable column for card views, TOC + content for
+ * spec views). Keeping padding/overflow off the wrapper lets the TOC
+ * and content columns each scroll independently.
+ */
+
+.main-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.main-pane__scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 32px;
+}
+
+/* Project-overview variant of the main pane: fills the available
+ * height without adding its own vertical scroll. The two columns
+ * inside (.project-overview__tree and .project-overview__cards)
+ * scroll independently — useful because the right-hand card stack
+ * can be tall while the tree is short (or vice versa). */
+.main-pane__project {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  padding: 24px 32px;
+}
+
+.main-pane__empty {
+  color: var(--c-text-muted);
+  padding: 24px 32px;
+}
+
+/* ---------- TOC column ---------- */
+
+.toc {
+  width: 260px;
+  min-width: 200px;
+  max-width: 340px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--c-border);
+  background: var(--c-bg-elev);
+  /* The TOC column is a flex column: filter row on top (fixed), scroll
+   * area below (grows, scrolls). Using overflow: hidden here is important
+   * so only the inner `.toc__scroll` scrolls — the filter row stays put
+   * no matter how far the tree has been scrolled. */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.toc__filter-row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  min-height: var(--spec-header-height);
+  background: var(--c-bg-elev);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.toc__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 6px 10px;
+}
+
+.toc__filter {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: var(--c-bg);
+  color: inherit;
+}
+
+.toc__filter:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+.toc__toggle-all {
+  flex-shrink: 0;
+  width: 26px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: var(--c-bg);
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.toc__toggle-all:hover {
+  background: var(--c-hover);
+}
+
+.toc__toggle-all:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.toc__toggle-all:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+.toc__empty {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  padding: 4px 10px;
+  font-style: italic;
+}
+
+.toc__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.toc__item {
+  margin: 0;
+}
+
+/* One TOC row = chevron toggle + heading link. The chevron button is a
+ * separate click target so toggling a subtree doesn't also scroll-jump
+ * to the heading. Leaves render a same-width spacer instead of a button
+ * so their numbers line up with parents' numbers vertically. */
+.toc__row {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  border-radius: 4px;
+}
+
+.toc__row.is-active {
+  background: var(--c-accent-soft);
+}
+
+.toc__chevron {
+  flex-shrink: 0;
+  width: 16px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--c-text-muted);
+  font-size: 10px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.toc__chevron:hover:not(:disabled) {
+  background: var(--c-hover);
+  color: var(--c-text);
+}
+
+.toc__chevron:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* Leaf placeholder — non-interactive spacer with the same footprint as
+ * the chevron button so numbers align across siblings. */
+.toc__chevron--leaf {
+  cursor: default;
+}
+
+/* TOC links render in the default text colour and stay understated —
+ * Claude-style outlines treat the sidebar as a secondary navigation
+ * surface, not a feature. The accent is only spent on the "you are
+ * here" highlight (active row). */
+.toc__link {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--c-text);
+}
+
+.toc__link:hover {
+  background: var(--c-hover);
+}
+
+.toc__link.is-active {
+  color: var(--c-accent-strong);
+  font-weight: 600;
+}
+
+.toc__link.is-active .toc__no {
+  color: var(--c-accent-strong);
+}
+
+.toc__no {
+  color: var(--c-text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.toc__heading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- spec content column (right of TOC) ---------- */
+
+.spec-content {
+  flex: 1;
+  /* 320px floor — same minimum as the header's left track. Keeps the
+   * spec column readable on narrow windows; the reference pane to the
+   * right is the one that yields first. */
+  min-width: var(--ref-panel-width);
+  overflow-y: auto;
+  /* Left padding matches `.aligned__cell`'s 32px so section numbers
+   * don't shift sideways when the user toggles between aligned and
+   * spec-only layouts via the chevron. 32px on the right keeps the
+   * text column from running into the ref-panel divider. */
+  padding: 24px 32px 24px 32px;
+}
+
+/* ---------- Print layout (Slice 6P.1) ----------
+ *
+ * When the user selects "print" layout, the spec scroll container
+ * shows a grey gutter behind a white "page" sized to A4 content
+ * width. Margins mirror the pdfmake spec PDF (50pt left/right, 95pt
+ * top, 70pt bottom — see buildSpecPdf.ts) so what the user writes
+ * lines up with what they get on print. Only horizontal width is
+ * enforced; the page grows vertically as needed (pagination is
+ * icebox).
+ *
+ * Unit conversion: 1pt = 0.3528mm.
+ *     50pt ≈ 17.64mm (left/right)
+ *     95pt ≈ 33.51mm (top)
+ *     70pt ≈ 24.69mm (bottom)
+ *     A4 width = 210mm, so content width ≈ 174.72mm.
+ *
+ * Images are capped at the page's inner width so oversized pasted
+ * bitmaps don't blow the layout — smaller images keep their pixel
+ * size, matching how pdfmake scales them on export.
+ */
+.spec-content--print {
+  background: var(--c-bg);
+  padding: 24px 0;
+}
+.spec-content--print .spec-content__page {
+  width: 210mm;
+  margin: 0 auto;
+  padding: 33.51mm 17.64mm 24.69mm 17.64mm;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  box-sizing: border-box;
+}
+.spec-content--print .spec-content__page .spec-view {
+  padding: 0;
+}
+.spec-content--print .spec-content__page img {
+  max-width: 100%;
+  height: auto;
+}
+.spec-content--print .spec-content__page table {
+  max-width: 100%;
+}
+
+.main-pane__card {
+  max-width: 780px;
+}
+
+/* Slice 6M — placeholder shown when the active tab's target has been
+ * marked for deletion. Slightly dimmed so the user clearly sees this
+ * is a "doomed" state, with a prominent Restore button. */
+.pending-delete-card {
+  border: 1px dashed var(--c-border);
+  background: var(--c-surface-muted, #fafafa);
+  padding: 24px;
+  border-radius: 8px;
+}
+
+.pending-delete-card h2 {
+  margin-top: 0;
+}
+
+.pending-delete-card p {
+  color: var(--c-text-muted);
+  margin-bottom: 16px;
+}
+
+.main-pane__card h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.hint {
+  color: var(--c-text-muted);
+}
+
+.meta {
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+dl.meta {
+  display: grid;
+  /* minmax(0, ...) rather than a plain 1fr: a grid column defaults to
+   * min-width:auto, which means it refuses to become narrower than
+   * its widest content. A long unbroken value then pushed the column
+   * — and the whole card — wider instead of wrapping or clipping. */
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0 0 24px;
+  font-size: 13px;
+  color: inherit;
+}
+
+dl.meta dt {
+  color: var(--c-text-muted);
+}
+
+dl.meta dd {
+  margin: 0;
+  /* Same reason as the minmax above, one level down: the <dd> is
+   * itself a grid item, so it also has to be allowed to shrink below
+   * its content. Both are needed — fixing only one still lets the
+   * card grow. */
+  min-width: 0;
+}
+
+/* A row that spans the label column as well, so the value gets the
+ * card's full width. Used by the file path: the standard row spends
+ * 180px of a ~245px card on the label, leaving about 50px for the
+ * value, which is why a path used to wrap into nine lines. */
+dl.meta .meta__full-row {
+  grid-column: 1 / -1;
+}
+
+.counts {
+  /* Slice 10K.8 follow-up: cap at 3 counters per row — the 4th one
+   * (Attachments) wraps to a new line instead of overflowing the
+   * narrow right column. Grid keeps all cells the same width, which
+   * looks tidier than a flex-wrap with ragged trailing cell sizes. */
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.counter {
+  padding: 12px 16px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+/* Slice 10K.5 — when a Counter has an onClick, it's rendered as a
+ * <button>. Reset default button styling so it matches the plain
+ * counter visually, and add a hover affordance. */
+button.counter--clickable {
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.counter--clickable:hover {
+  border-color: var(--c-text);
+  background: var(--c-row-hover, rgba(0, 0, 0, 0.03));
+}
+button.counter--clickable:focus-visible {
+  outline: 2px solid var(--c-accent, #3b82f6);
+  outline-offset: 2px;
+}
+
+.counter__n {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.counter__label {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* ---------- Phase 10 Slice 10A — Project Overview layout ---------- */
+/* Two-column grid: 2/3 navigation tree on the left, 1/3 action cards
+ * on the right. The left tree is a placeholder until Slice 10C; the
+ * right column stacks metadata → counters → contracts → export. */
+.project-overview {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  /* Wider than .main-pane__card's 780px cap on purpose — the
+   * overview page owns the whole main-pane width now. */
+  max-width: 1400px;
+  /* Fill the .main-pane__project wrapper height so the inner
+   * columns have a bounded box to scroll inside. Without this
+   * the grid tracks would size to their content and both columns
+   * would push the outer scroller instead of scrolling in place. */
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  align-self: stretch;
+  overflow: hidden;
+}
+
+.project-overview__tree {
+  min-width: 0; /* allow the grid track to shrink */
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-surface, #fff);
+  overflow: hidden;
+}
+
+/* The embedded <Sidebar> fills the entire tree cell. Its own
+ * .sidebar--embedded modifier already strips the fixed width / right
+ * border / elevated background, so we only need the flex-child rule
+ * here. */
+.project-overview__tree > .sidebar--embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.project-overview__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  /* Independent scroll: the right column gets its own scrollbar
+   * when the stacked cards (metadata, counters, contracts, export)
+   * exceed the viewport height. A little right padding keeps card
+   * content clear of the scrollbar gutter. */
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* ---------- Ghost scrollbars ----------
+ *
+ * Applied to containers where a permanently-visible scrollbar track
+ * adds visual noise: the project-overview columns, the editor spec
+ * content (both web + print/paper layout), the TOC, and the top
+ * tab row. The gutter is always 8px (no layout shift) but the
+ * thumb is transparent until the user hovers the container — the
+ * OS wheel-scroll flash still works because Chromium briefly
+ * transitions the thumb colour during scroll, same as the macOS
+ * overlay scrollbar.
+ *
+ * Not applied to: modal lists, rail, sidebar tree (when expanded),
+ * and the main project-tree sidebar — those stay with the default
+ * platform bar because users rely on scroll position there. */
+.project-overview__cards,
+.project-overview__tree .sidebar__scroll,
+.spec-content,
+.toc__scroll,
+.tabbar {
+  /* Firefox: thin width + transparent thumb by default. */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 180ms ease;
+}
+
+.project-overview__cards:hover,
+.project-overview__tree .sidebar__scroll:hover,
+.spec-content:hover,
+.toc__scroll:hover,
+.tabbar:hover {
+  /* Firefox hover: reveal the thumb only. */
+  scrollbar-color: var(--c-border) transparent;
+}
+
+/* Chromium / Electron: explicit scrollbar pseudo-elements. */
+.project-overview__cards::-webkit-scrollbar,
+.project-overview__tree .sidebar__scroll::-webkit-scrollbar,
+.spec-content::-webkit-scrollbar,
+.toc__scroll::-webkit-scrollbar,
+.tabbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.project-overview__cards::-webkit-scrollbar-track,
+.project-overview__tree .sidebar__scroll::-webkit-scrollbar-track,
+.spec-content::-webkit-scrollbar-track,
+.toc__scroll::-webkit-scrollbar-track,
+.tabbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.project-overview__cards::-webkit-scrollbar-thumb,
+.project-overview__tree .sidebar__scroll::-webkit-scrollbar-thumb,
+.spec-content::-webkit-scrollbar-thumb,
+.toc__scroll::-webkit-scrollbar-thumb,
+.tabbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 180ms ease;
+}
+
+/* Reveal on container hover — soft tone. */
+.project-overview__cards:hover::-webkit-scrollbar-thumb,
+.project-overview__tree .sidebar__scroll:hover::-webkit-scrollbar-thumb,
+.spec-content:hover::-webkit-scrollbar-thumb,
+.toc__scroll:hover::-webkit-scrollbar-thumb,
+.tabbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* Stronger tone when the user actually hovers the bar itself. */
+.project-overview__cards::-webkit-scrollbar-thumb:hover,
+.project-overview__tree .sidebar__scroll::-webkit-scrollbar-thumb:hover,
+.spec-content::-webkit-scrollbar-thumb:hover,
+.toc__scroll::-webkit-scrollbar-thumb:hover,
+.tabbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* Belt & braces: the tabbar only scrolls horizontally. Even with the
+ * ghost rule above, Electron sometimes paints a 1px corner where the
+ * horizontal track meets an (unused) vertical track. Suppressing
+ * the corner keeps the tab row visually clean. */
+.tabbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Cards inside the right column ignore the default .main-pane__card
+ * max-width so they fill the 1/3 track. */
+.project-overview__cards .main-pane__card,
+.project-overview__cards .contracts-card,
+.project-overview__cards .export-card {
+  max-width: none;
+  width: 100%;
+}
+
+/* Counter card: keep the counters themselves tight; no extra padding. */
+.project-overview__counters-card .counts {
+  margin-top: 0;
+}
+
+/* Metadata card header: title on the left, "Edit…" button on the right.
+ * Mirrors .contracts-card__header so the two cards read as a pair. */
+.project-overview__metadata-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-overview__metadata-card__header h2 {
+  margin: 0;
+}
+
+/* "• edited" marker inline with the h2 title when there's a pending
+ *  buffered project edit. */
+.meta__edited-marker {
+  color: var(--c-text-muted);
+  font-weight: 400;
+  font-size: 0.85em;
+}
+
+/* Small secondary button (e.g. "Edit…" on the metadata card). Shares
+ * the same outlined style as .contracts-card__new, just a touch
+ * smaller to fit inside a header row. */
+.btn--small {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn--small:hover,
+.btn--small:focus-visible {
+  background: var(--c-hover);
+  outline: none;
+}
+
+/* Narrow viewports (e.g. split-screen): stack the two columns and
+ * fall back to a single outer scroll — it's simpler and more natural
+ * when there's no horizontal room for two parallel panes. */
+@media (max-width: 900px) {
+  .main-pane__project {
+    overflow-y: auto;
+  }
+  .project-overview {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  .project-overview__tree {
+    min-height: 240px;
+    max-height: none;
+  }
+  .project-overview__cards {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
+/* ---------- spec view ---------- */
+
+.spec-view {
+  max-width: 820px;
+}
+
+.spec-view__header {
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.spec-view__kind {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-muted);
+  font-weight: 600;
+}
+
+.spec-view h2 {
+  margin: 4px 0 6px;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.spec-view__code {
+  margin-right: 10px;
+  font-size: 0.8em;
+  vertical-align: middle;
+}
+
+.spec-view__revision {
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.spec-view__sections {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* Claude-style: no card, no borders around the body. Vertical rhythm
+ * alone carries the separation — generous spacing above each heading.
+ * Earlier versions drew a hairline divider at the bottom of each
+ * section, but Tore asked for a cleaner look without those grey lines
+ * in any mode (web/print, aligned/non-aligned). */
+.section {
+  padding: 18px 0 22px;
+}
+
+/* Compact-view header-only row: the body is hidden entirely, so the
+ * section is just its heading. Collapse the surrounding padding, the
+ * bottom divider (would cluster into a line stack), and the header's
+ * own bottom margin so empty parents don't eat vertical space between
+ * the sections that actually have content. */
+.section--header-only {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-bottom: none;
+}
+.section--header-only .section__header {
+  margin-bottom: 0;
+}
+
+.section__header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+/* Section numbers share the heading's typography exactly — colour,
+ * weight, size (including the depth-based sizing below) — so the
+ * number and heading read as one continuous line. Tabular nums keep
+ * the column of dotted numbers aligned down the page; min-width
+ * reserves room for the longest dotted number. */
+.section__no {
+  color: var(--c-text);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.005em;
+  font-variant-numeric: tabular-nums;
+  min-width: 52px; /* fits dotted numbers like 2.5.4.1 */
+}
+
+/* Slightly smaller headings the deeper we go, so the tree reads
+ * visually. The section number tracks the same per-depth sizing. */
+.section[data-depth="1"] .section__heading,
+.section[data-depth="1"] .section__no {
+  font-size: 15px;
+}
+.section[data-depth="2"] .section__heading,
+.section[data-depth="2"] .section__no {
+  font-size: 14px;
+}
+.section[data-depth="3"] .section__heading,
+.section[data-depth="3"] .section__no,
+.section[data-depth="4"] .section__heading,
+.section[data-depth="4"] .section__no,
+.section[data-depth="5"] .section__heading,
+.section[data-depth="5"] .section__no {
+  font-size: 13px;
+}
+
+.section__heading {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text);
+  letter-spacing: -0.005em;
+}
+
+/* Body renders as flowing prose, not a card. Left-aligned with the
+ * heading (no extra indent) so the eye reads the section as one
+ * continuous column of text. */
+.section__body {
+  margin-left: 0;
+  color: var(--c-text);
+}
+
+.section__body p {
+  margin: 0 0 10px;
+}
+.section__body p:last-child {
+  margin-bottom: 0;
+}
+
+.section__body ul,
+.section__body ol {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+
+.section__body table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  /* Fixed layout + 100% width so read mode renders tables the same way
+   * edit mode does (the editor needs fixed layout for column-resize).
+   * Keeps the visual unchanged when the user enters/exits edit mode. */
+  table-layout: fixed;
+  width: 100%;
+}
+
+.section__body th,
+.section__body td {
+  border: 1px solid var(--c-border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  box-sizing: border-box;
+}
+
+.section__body img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Empty placeholder is just a muted one-liner — no dashed box. The
+ * Claude look relies on whitespace, not outlines. Only shown outside
+ * compact view (the component already renders null when compact is on). */
+.section__empty {
+  margin-left: 0;
+  color: var(--c-text-muted);
+  font-style: italic;
+  font-size: 13px;
+  padding: 2px 0;
+}
+
+/* ---------- Editable section body (Phase 6 Slice B) ----------
+ *
+ * Read-only bodies become clickable affordances in edit mode. Hover
+ * state is a subtle background tint; cursor becomes text to hint that
+ * a click will land in an editor. The TipTap editor itself sits in
+ * place of the HTML render — same left margin so the row doesn't jump.
+ */
+
+.section__body--editable,
+.section__empty--editable {
+  cursor: text;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  transition: background-color 120ms ease;
+}
+
+.section__body--editable:hover,
+.section__empty--editable:hover {
+  background: var(--c-hover);
+}
+
+.section__body--editable:focus-visible,
+.section__empty--editable:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Edit-mode frame.
+ *
+ * Design goal: when the user clicks into a body, the ONLY visible
+ * changes should be the white background and a thin light-grey border.
+ * Text position, typography, list/table spacing — everything else stays
+ * identical to the read-mode `.section__body`.
+ *
+ * How the "no text shift" is achieved: the read body has no padding of
+ * its own, so its text sits flush with the section's content-box edge.
+ * The editor frame has a 1px border + 7px/10px content padding. We
+ * cancel both with a negative margin so the text inside the editor
+ * lines up with the read-mode text.
+ *
+ * The vertical cancellation is tuned empirically to -7px (not -8px as
+ * the arithmetic would suggest) because ProseMirror's contenteditable
+ * wrapper renders text ~1px higher than a plain <div> at the same
+ * baseline. That 1px shows up as a jitter on click unless compensated
+ * here.
+ */
+.section-editor {
+  margin: -7px -11px;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* Floating BubbleMenu that TipTap positions above the current selection.
+   We style it as a detached pill with a soft shadow so it reads as an
+   overlay, not part of the section chrome. TipTap/floating-ui writes
+   inline transform + position styles at runtime, so this rule only
+   handles appearance (not positioning). */
+.section-editor__bubble {
+  display: flex;
+  gap: 2px;
+  padding: 3px 5px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 5px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
+  /* Above the modal backdrop (z-index 200) so the formatting menu is
+     visible when SectionEditor is used inside the Merge dialog. */
+  z-index: 230;
+}
+
+.section-editor__bubble-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  min-width: 26px;
+  /* 6L.2-fix: buttons now carry lucide SVG icons as children — use
+     inline-flex so the icon (and any sibling chevron/indicator) sits
+     vertically centred within the button. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1;
+}
+
+.section-editor__bubble-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.section-editor__bubble-btn.is-active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+/* Disabled state — used for the Link button when the selection covers
+   an image node (links on images aren't supported). */
+.section-editor__bubble-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.section-editor__bubble-btn:disabled:hover {
+  background: transparent;
+}
+
+/* 6L.2-fix — color-dropdown trigger layout. Icon stacked above a thin
+   color bar that shows which swatch is currently applied. Always
+   rendered (transparent when empty) so button height stays stable. */
+.section-editor__color-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.section-editor__color-bar {
+  width: 14px;
+  height: 3px;
+  border-radius: 1px;
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.section-editor__color-bar.is-empty {
+  border-color: rgba(0, 0, 0, 0.12);
+  background: transparent;
+}
+
+.section-editor__bubble-sep {
+  width: 1px;
+  background: var(--c-border);
+  margin: 2px 4px;
+}
+
+/* 6L.1 color palette — defined as CSS variables so the same hex values
+   are reused by (a) the editor content itself, (b) the dropdown
+   swatches, and (c) the trigger button's color strip. These are the
+   single-palette defaults Tore signed off on; they serve as both
+   text-color and background-color (same hex in both contexts). */
+:root {
+  --palette-yellow: #fff26b;
+  --palette-blue: #9ed6ff;
+  --palette-red: #ff8b8b;
+  --palette-green: #b7f0a3;
+}
+
+/* Inline color marks produced by the editor. Both the editor's own
+   content and any read-only preview uses these same classes. */
+.section-editor__content .tc-yellow,
+.section__body .tc-yellow {
+  color: var(--palette-yellow);
+}
+.section-editor__content .tc-blue,
+.section__body .tc-blue {
+  color: var(--palette-blue);
+}
+.section-editor__content .tc-red,
+.section__body .tc-red {
+  color: var(--palette-red);
+}
+.section-editor__content .tc-green,
+.section__body .tc-green {
+  color: var(--palette-green);
+}
+
+.section-editor__content mark.bg-yellow,
+.section__body mark.bg-yellow {
+  background: var(--palette-yellow);
+  color: inherit;
+}
+.section-editor__content mark.bg-blue,
+.section__body mark.bg-blue {
+  background: var(--palette-blue);
+  color: inherit;
+}
+.section-editor__content mark.bg-red,
+.section__body mark.bg-red {
+  background: var(--palette-red);
+  color: inherit;
+}
+.section-editor__content mark.bg-green,
+.section__body mark.bg-green {
+  background: var(--palette-green);
+  color: inherit;
+}
+
+/* Slice "Highlights & formatting" — transient flash applied to a
+ * specific mark/span when the user click-jumps from the Highlights
+ * tab. Outline animates from full to faded over ~3s. The
+ * `outline-offset` keeps the box clear of the underlying highlight
+ * background so both stay visible.
+ */
+@keyframes highlight-flash-anim {
+  0% {
+    outline: 3px solid rgba(20, 110, 220, 0.85);
+    outline-offset: 2px;
+  }
+  60% {
+    outline: 3px solid rgba(20, 110, 220, 0.45);
+    outline-offset: 2px;
+  }
+  100% {
+    outline: 3px solid rgba(20, 110, 220, 0);
+    outline-offset: 2px;
+  }
+}
+.highlight-flash {
+  animation: highlight-flash-anim 3s ease-out;
+  border-radius: 2px;
+}
+
+/* Color dropdown (bubble menu). The trigger is a regular bubble-btn;
+   the panel floats below it with four swatches + a clear button. */
+.section-editor__bubble-dd {
+  position: relative;
+  display: inline-flex;
+}
+
+.section-editor__bubble-chevron {
+  font-size: 8px;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+.section-editor__bubble-dd-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+  z-index: 240; /* above the bubble itself (which is now 230) */
+  white-space: nowrap;
+}
+
+.section-editor__swatch {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.section-editor__swatch.is-active {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.section-editor__swatch--clear {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.section-editor__swatch--clear:hover {
+  background: #eee;
+}
+
+.section-editor__content {
+  /* Padding here is cancelled by the .section-editor negative margin
+   * so the text inside lines up with the read-mode body. The padding
+   * still exists visually as the gap between border and text. */
+  padding: 7px 10px;
+  min-height: 1.6em;
+  outline: none;
+  color: var(--c-text);
+}
+
+/* Typography below mirrors `.section__body`. Any drift between these
+ * rules shows up to the user as "the text shifted on edit" — keep them
+ * in lockstep. */
+.section-editor__content p {
+  margin: 0 0 10px;
+}
+.section-editor__content p:last-child {
+  margin-bottom: 0;
+}
+
+.section-editor__content ul,
+.section-editor__content ol {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+
+.section-editor__content table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  /* table-layout: fixed lets ProseMirror's column-resize plugin honor
+     per-column widths; without this the browser auto-sizes columns to
+     content and resize drags feel unresponsive. Matches read mode. */
+  table-layout: fixed;
+  width: 100%;
+}
+
+.section-editor__content th,
+.section-editor__content td {
+  border: 1px solid var(--c-border);
+  padding: 6px 10px;
+  text-align: left;
+  /* Relative anchor for the .column-resize-handle pseudo-element. */
+  position: relative;
+  vertical-align: top;
+  box-sizing: border-box;
+}
+
+/* TipTap injects these classes via ProseMirror's built-in plugins.
+   Small visual affordances so users see what's happening. */
+.section-editor__content .selectedCell {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.section-editor__content .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: rgba(59, 130, 246, 0.55);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.section-editor__content.resize-cursor,
+.section-editor__content .resize-cursor {
+  cursor: col-resize;
+}
+
+.section-editor__content img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---------- 6L.4 FloatingMenu: insert-table entry point ---------- */
+
+.section-editor__floating {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  /* Above the modal backdrop — see .section-editor__bubble. */
+  z-index: 230;
+}
+
+.section-editor__floating-dd {
+  position: relative;
+  display: inline-flex;
+}
+
+.section-editor__floating-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-text-muted, #666);
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  /* 6L.2-fix: icon-only floating buttons — same inline-flex treatment
+     as the bubble buttons so the lucide SVG centres properly. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.section-editor__floating-btn:hover,
+.section-editor__floating-btn.is-open {
+  background: rgba(0, 0, 0, 0.05);
+  color: inherit;
+}
+
+/* Grid picker panel attached to the InsertTableButton.
+ *
+ * The picker is rendered via a React Portal to document.body and
+ * positioned with `position: fixed` + inline top/left from the
+ * trigger button's bounding rect (see InsertTableButton). The
+ * --portal modifier carries the z-index; position/coords come from
+ * inline styles so React owns the geometry. Rendering on body gets
+ * the picker out of the .section-editor's stacking context, which is
+ * what makes hit-testing work even when the grid visually extends
+ * past the editor's white box. */
+.section-editor__grid-picker {
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+  z-index: 240; /* above the bubble (230) — see .section-editor__bubble */
+}
+
+.section-editor__grid {
+  display: grid;
+  gap: 2px;
+}
+
+.section-editor__grid-cell {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--c-border);
+  background: #fafafa;
+  cursor: pointer;
+}
+
+.section-editor__grid-cell.is-active {
+  background: rgba(59, 130, 246, 0.35);
+  border-color: #2563eb;
+}
+
+.section-editor__grid-label {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--c-text-muted, #666);
+  text-align: center;
+}
+
+/* Table-ops dropdown panel in the bubble menu (stacked, not row). */
+.section-editor__table-ops {
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  min-width: 140px;
+}
+
+.section-editor__table-op {
+  appearance: none;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.section-editor__table-op:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.section-editor__table-op:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.section-editor__table-op.is-destructive {
+  color: #b91c1c;
+}
+
+.section-editor__table-op.is-destructive:hover:not(:disabled) {
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.section-editor__table-ops-sep {
+  height: 1px;
+  background: var(--c-border);
+  margin: 3px 2px;
+}
+
+.section-editor--loading {
+  margin-left: 34px;
+  min-height: 40px;
+  background: var(--c-bg-subtle, #f6f7f9);
+  border: 1px dashed var(--c-border);
+  border-radius: 4px;
+}
+
+/* ---------- Reference panel (right of spec content) ----------
+ *
+ * The reference column sits to the right of the spec content. A dropdown
+ * at the top picks which reference type to show (Basis / Referenceliste /
+ * Paradigm / Work area). Picking "Work area" flips SpecTabView into
+ * aligned mode, which renders a side-by-side grid instead of this panel.
+ *
+ * Width is fixed (not a range) so switching reference type never shifts
+ * the rest of the layout sideways — the same width is reused for the
+ * right column of the aligned grid.
+ */
+
+.ref-panel {
+  /* Preferred width is var(--ref-panel-width); on narrow windows the
+   * pane is allowed to shrink down to its intrinsic content width so
+   * the spec pane keeps its 320px floor (see .spec-content below).
+   *
+   * Background is intentionally transparent — the whole spec-editing
+   * area reads as one "paper" surface. The left border does the
+   * divider duty so the pane is still visually distinct. */
+  flex: 0 1 var(--ref-panel-width);
+  min-width: 0;
+  border-left: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* lets the body scroll independently */
+}
+
+.ref-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  /* Match the spec-content rule: a bit more room on the left than the
+   * right so labels line up visually with the spec numbers across the
+   * pane divider. */
+  padding: 16px 18px 16px 27px;
+}
+
+.ref-panel__view {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ref-panel__title {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.ref-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.ref-panel__label {
+  font-size: 11px;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ref-panel__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.ref-panel__value--empty {
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+.ref-panel__hint {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  font-style: italic;
+  margin: 14px 0 0;
+}
+
+/* MAPI5 — Reference panel state messages for the Molio Basis /
+ * Instruction sub-tabs. Yellow for "user needs to do something"
+ * (no key, no email, no license); red for outright errors
+ * (auth-failed, network/HTTP errors). Both override the muted
+ * grey of the base hint so the user actually notices them. */
+.ref-panel__hint--warn {
+  color: #92400e; /* amber-800 */
+  background: #fffbeb; /* amber-50 */
+  border-left: 3px solid #f59e0b; /* amber-500 */
+  padding: 8px 10px;
+  font-style: normal;
+  border-radius: 2px;
+}
+.ref-panel__hint--error {
+  color: #991b1b; /* red-800 */
+  background: #fef2f2; /* red-50 */
+  border-left: 3px solid #dc2626; /* red-600 */
+  padding: 8px 10px;
+  font-style: normal;
+  border-radius: 2px;
+}
+
+/* ---------- Aligned view (BDB vs parent work area) ----------
+ *
+ * `.aligned` is the single shared scroll container for aligned mode — it
+ * spans the content area AND the reference-panel area as one CSS Grid,
+ * so the two sides can never scroll out of sync.
+ *
+ * The right column is fixed at `--ref-panel-width` (same as the standard
+ * reference panel), so switching reference type never shifts the layout.
+ *
+ * The title bar + dropdown live OUTSIDE this scroll container — they're
+ * rendered by SpecTabView as the unified sticky header, shared with
+ * standard-mode layouts so the top of the editor looks identical across
+ * reference types.
+ */
+
+.aligned {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  /* No background here — the whole spec-editing area reads as one
+   * "paper" surface, so aligned, standard and spec-only layouts all
+   * share the root `--c-bg`. Switching via the chevron no longer
+   * flashes between beige and near-white. */
+}
+
+.aligned__grid {
+  display: grid;
+  /* Same floor/ceiling formula as `.spec-main__header` and the flex
+   * rules on `.spec-content` / `.ref-panel`, so the divider between
+   * left and right columns lines up across header and body at every
+   * window width. */
+  grid-template-columns: minmax(var(--ref-panel-width), 1fr) minmax(
+      0,
+      var(--ref-panel-width)
+    );
+  column-gap: 0;
+  row-gap: 0;
+  padding: 0;
+}
+
+.aligned__empty {
+  padding: 24px 32px;
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+.aligned__cell {
+  /* Same left-bias rule as .spec-content — section numbers should sit
+   * a bit further from the left edge than from the right to match the
+   * reading rhythm of the flat spec view.
+   *
+   * No bottom divider — Tore asked for no horizontal grey lines between
+   * sections in any mode. The vertical divider (right border) stays so
+   * the aligned grid still reads as two paired columns. */
+  padding: 12px 20px 12px 32px;
+  border-right: 1px solid var(--c-border);
+}
+
+.aligned__cell:nth-child(even) {
+  border-right: none;
+}
+
+/* ---------- Aligned + print layout (Slice 6P.1-follow-up2) ----------
+ *
+ * When print mode is active AND the user is in aligned view, we want
+ * the same "paper on a desk" look as non-aligned print: a centered
+ * A4-width page (210mm) with a drop shadow, sitting in an app-bg
+ * gutter. The parent-paradigm reference column sits to the right of
+ * the paper and looks the same as in web-aligned.
+ *
+ * Trick: instead of wrapping the left column in a container (which
+ * would break the grid's per-row height pairing between left and right
+ * cells), we draw the paper as a single `::before` pseudo-element
+ * absolutely positioned behind the left track. The grid cells sit on
+ * top with transparent background, so one continuous paper + shadow
+ * runs behind every left-column section, while the grid's row
+ * alignment stays intact.
+ */
+.aligned--print {
+  background: var(--c-bg);
+  padding: 24px 0;
+}
+.aligned--print .aligned__grid {
+  /* Fixed paper column + a visible gutter gap + reference column. The
+   * whole grid is centred inside the pane, just like the paper is in
+   * non-aligned print. */
+  grid-template-columns: 210mm minmax(0, var(--ref-panel-width));
+  column-gap: 24px;
+  max-width: calc(210mm + 24px + var(--ref-panel-width));
+  margin: 0 auto;
+  position: relative;
+}
+/* The continuous paper behind the left column — single white rectangle
+ * with the same box-shadow as the non-aligned print page. Absolutely
+ * positioned under the grid cells (z-index 0 here, 1 on the cells
+ * below) so one continuous paper + shadow runs behind every left-
+ * column section without breaking grid row pairing. */
+.aligned--print .aligned__grid::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 210mm;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  z-index: 0;
+  pointer-events: none;
+}
+.aligned--print .aligned__cell {
+  /* Cells must stack above the paper pseudo-element; position + z-index
+   * creates a stacking context. Background is transparent so the paper
+   * (or the gutter, for right cells) shows through. The right-border
+   * divider is dropped on paper — it belongs to the grid, not the
+   * paper look. (Bottom borders are already removed globally on
+   * .aligned__cell.) */
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  border-right: none;
+}
+/* Match the non-aligned print page margins on the LEFT (paper) column.
+ * The inline paddingLeft override from SideCell is skipped in print
+ * mode (see isPrint in AlignedSpecView), so CSS wins. */
+.aligned--print .aligned__cell:nth-child(odd) {
+  padding-left: 17.64mm;
+  padding-right: 17.64mm;
+}
+/* Top page margin on the first row (header cells) and bottom page
+ * margin on the last row — mirrors the .spec-content__page padding of
+ * 33.51mm 17.64mm 24.69mm in non-aligned print. */
+.aligned--print .aligned__cell:nth-child(1),
+.aligned--print .aligned__cell:nth-child(2) {
+  padding-top: 33.51mm;
+}
+.aligned--print .aligned__cell:nth-last-child(1),
+.aligned--print .aligned__cell:nth-last-child(2) {
+  padding-bottom: 24.69mm;
+}
+
+/* Header cell (print+aligned only). Reuses the `.spec-view__header`
+ * look & feel from non-aligned print so the paper looks identical
+ * across aligned/non-aligned modes. Right-side header gets the same
+ * visual weight, so the "empty area" above the reference column is a
+ * meaningful mirror of the left one. */
+.aligned__cell--header {
+  /* Top padding comes from the :nth-child(1)/(2) rule above so the
+   * page margin stays consistent with non-aligned print. */
+  padding-bottom: 0;
+}
+.aligned--print .aligned__cell--header-right {
+  /* Right-side header sits over the cream gutter — keep it readable by
+   * not pretending it's on paper. `.spec-view__header` already gives
+   * it a bottom border to separate from the sections below. */
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Missing-on-this-side cell — plain cell, same background as its filled
+ * siblings. The absence of content is the cue; no pattern needed. */
+.aligned__cell--missing {
+  background: transparent;
+}
+
+/* Inside the aligned grid we reuse .section styles but strip the section's
+ * own vertical padding that was designed for the flat list view — the
+ * grid cell already provides its own padding. No bottom divider (same
+ * policy as .section and .aligned__cell above). */
+.aligned__cell.section {
+  padding-top: 12px;
+  padding-bottom: 16px;
+  margin: 0;
+}
+
+/* ---------- Reference-type dropdown ---------- */
+
+.ref-dropdown {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.ref-dropdown__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ref-dropdown__trigger:hover {
+  background: var(--c-hover);
+}
+
+.ref-dropdown__trigger:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+.ref-dropdown__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.ref-dropdown__chevron {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.ref-dropdown__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.ref-dropdown__item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ref-dropdown__item:hover {
+  background: var(--c-hover);
+}
+
+.ref-dropdown__item.is-active {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  font-weight: 500;
+}
+
+/* Inline variant used inside the unified spec header (right cell) —
+ * borderless so the dropdown blends into the header bar. Padding matches
+ * the left header title so both cells feel the same height regardless of
+ * label length. The chevron + hover still signal "clickable". */
+.ref-dropdown--inline .ref-dropdown__trigger {
+  background: transparent;
+  border-color: transparent;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-text-muted);
+}
+
+.ref-dropdown--inline .ref-dropdown__trigger:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
+}
+
+/* ---------- Unified spec-main layout ----------
+ *
+ * Every Spec tab (work area or BDB, any reference type) renders inside
+ * `.spec-main`: a sticky header bar across the top of the content + ref
+ * area, and a body below that's either the standard content + ref-panel
+ * pair or the aligned dual-column grid. The header stays in place while
+ * the body scrolls underneath — same visual shell for all reference
+ * types.
+ */
+
+.spec-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.spec-main__header {
+  flex-shrink: 0;
+  display: grid;
+  /* Header tracks mirror the body layout:
+   *   - LEFT: minimum var(--ref-panel-width) (same floor as the spec
+   *     pane below), grows as 1fr when the window is wide.
+   *   - RIGHT: prefers var(--ref-panel-width), shrinks all the way to
+   *     0 on narrow windows so it tracks the body ref-pane's width
+   *     exactly. Using `min-content` would pin the cell to the
+   *     dropdown's intrinsic width, which is bigger than what the
+   *     body ref-pane can shrink to — so header and body diverge.
+   *     With floor 0 the dropdown label truncates on extreme widths,
+   *     which is a far less distracting failure mode than a
+   *     mis-aligned divider.
+   * `.aligned__grid` and the standard body flex rules use the same
+   * floor/ceiling so the divider between the two halves lines up top
+   * to bottom at every window width. */
+  grid-template-columns: minmax(var(--ref-panel-width), 1fr) minmax(
+      0,
+      var(--ref-panel-width)
+    );
+  min-height: var(--spec-header-height);
+  background: var(--c-bg-elev);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.spec-main__title {
+  /* Both header cells share the same vertical alignment so the two sides
+   * feel like one bar. Truncation is applied only on the left cell (see
+   * --left below). Do NOT put `overflow: hidden` on the shared class —
+   * the right cell hosts the reference-type dropdown whose popup needs
+   * to extend BELOW the header, and `overflow: hidden` would clip it. */
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.spec-main__title--left {
+  padding: 0 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-text-muted);
+  border-right: 1px solid var(--c-border);
+  /* The left cell itself clips so long titles don't push the grid wider,
+   * but we DON'T put ellipsis on the parent class — the right cell hosts
+   * the dropdown whose popup needs to extend below the header. */
+  overflow: hidden;
+}
+
+.spec-main__title-text {
+  /* Ellipsis rules live on the inner span, not on the flex cell — text-
+   * overflow on a raw text node inside a flex container is unreliable
+   * across browsers. The span gives us a proper block-level target. */
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.spec-main__title--right {
+  /* No padding here — the inline dropdown's own padding handles it, and
+   * making the cell itself padded-less means the click target can fill
+   * the full cell. */
+  padding: 0;
+  min-width: 0;
+}
+
+/* The right header cell is a flex row containing the ref-type dropdown
+ * and the collapse chevron. The dropdown's base rule sets `width: 100%`,
+ * which together with the ~22px button + margins would overflow the cell
+ * by ~30px (visible as the header sticking out past the right edge of
+ * the body column — and, on narrow windows, past the window itself).
+ *
+ * Force the dropdown to share the row via flex instead: it takes all
+ * remaining space after the button, its long label truncates with the
+ * existing ellipsis on `.ref-dropdown__label`, and total content width
+ * stays within the cell. No other layout is touched. */
+.spec-main__title--right .ref-dropdown--inline {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.spec-main__body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+/* Ref-panel-collapsed variant.
+ * When the user hides the right side via the chevron, the header grid
+ * becomes a single column so the left cell fills the full width and
+ * the body drops to a single-column layout (spec-only). Applied in
+ * BOTH standard and aligned modes — in aligned mode this hides the
+ * parent work-area column so the BDB gets the full width. */
+.spec-main--ref-collapsed .spec-main__header {
+  grid-template-columns: 1fr;
+}
+
+.spec-main--ref-collapsed .spec-main__title--left {
+  /* Kill the border between the two cells when there's only one. */
+  border-right: none;
+}
+
+/* Chevron toggle that shows/hides the reference panel.
+ * Two flavours:
+ *   --collapse  lives in the right header cell, right up against the
+ *               divider between content and ref pane, pointing right.
+ *   --expand    lives at the right edge of the left (now-only) cell
+ *               when the pane is collapsed, pointing left to invite
+ *               the user to pull it back out. */
+.ref-panel__toggle {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  cursor: pointer;
+  color: var(--c-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ref-panel__toggle:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
+}
+
+.ref-panel__toggle:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+}
+
+.ref-panel__toggle--collapse {
+  /* The right cell has no padding (see .spec-main__title--right) so the
+   * dropdown trigger fills it; the collapse chevron sits to the LEFT of
+   * the dropdown, against the inner divider. Using order + margin keeps
+   * it visually adjacent to the divider regardless of dropdown width. */
+  order: -1;
+  margin-left: 8px;
+  margin-right: 2px;
+}
+
+.ref-panel__toggle--expand {
+  /* Sits at the right edge of the left title cell. A tiny left margin
+   * keeps it from hugging the title text when the title is short. */
+  margin-left: auto;
+  margin-right: 12px;
+}
+
+/* ---------- Control Plan table (View 3, read-only) ----------
+ *
+ * The outer .cp-view mirrors .spec-main so the tab feels the same
+ * regardless of target kind. The table itself uses position: sticky
+ * for both the column-header row and the per-group rows so the user
+ * can scroll through a long plan without losing orientation. */
+.cp-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cp-view__header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  min-height: var(--spec-header-height);
+  padding: 0 20px;
+  background: var(--c-bg-elev);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.cp-view__title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* CP-API — "Default Control plan" button at the top-right of the
+ *  CP screen header. Pushed to the right by the title's flex-grow. */
+.cp-view__default-cp-button {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.cp-view__title code {
+  /* Reset the generic `code` chip inside this title — we want the
+   * number to blend with the label rather than render as a code box. */
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  margin-right: 6px;
+}
+
+/* The scroll container. `overflow: auto` gives horizontal + vertical
+ * scroll when the table exceeds the viewport. */
+.cp-view__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--c-bg);
+}
+
+.cp-view__empty {
+  padding: 24px;
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+.cp-table {
+  border-collapse: separate; /* required for sticky thead to render cleanly */
+  border-spacing: 0;
+  /* Min-width comes from the sum of COLUMNS widths — set by inline style
+   * on the component. This forces the table to be at least that wide
+   * so columns keep their size when the window is wide, and the
+   * container scrolls when it's narrow. */
+  min-width: var(--cp-min-width, 1600px);
+  width: 100%;
+  font-size: 12px;
+  background: var(--c-bg);
+}
+
+.cp-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--c-bg-elev);
+  border-bottom: 1px solid var(--c-border-strong);
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+/* Section group rows — sticky just under the column header. */
+.cp-table__group-row {
+  background: var(--c-bg-elev);
+}
+
+.cp-table__group {
+  position: sticky;
+  /* Must match the column header's rendered height so the group row
+   * parks right under it. 32px ≈ 8+8 padding + ~16 line-height. */
+  top: 32px;
+  z-index: 2;
+  background: var(--c-bg-elev);
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--c-text);
+}
+
+.cp-table__group-no {
+  display: inline-block;
+  min-width: 2.5em;
+  color: var(--c-accent);
+  margin-right: 6px;
+}
+
+/* 10I-followup gap 3 — inline-edit fields on the group header row.
+ * Borderless inputs that look like the static text but accept typing
+ * on focus (same pattern as the data-row cells and the CP title). */
+.cp-table__group-edit {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+}
+
+.cp-table__group-no-input {
+  width: 4em;
+  border: none;
+  background: transparent;
+  color: var(--c-accent);
+  font: inherit;
+  padding: 0;
+}
+
+.cp-table__group-text-input {
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+}
+
+.cp-table__group-no-input:focus,
+.cp-table__group-text-input:focus {
+  outline: 1px solid var(--c-accent);
+  outline-offset: 1px;
+  background: var(--c-bg);
+}
+
+.cp-table__cell {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--c-border);
+  vertical-align: top;
+  /* Each cell clips at its column width and shows ellipsis — tooltip
+   * on the <td> gives the user the full value on hover. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0; /* triggers column width constraint when combined with <col> widths */
+}
+
+.cp-table tbody tr:hover .cp-table__cell {
+  background: var(--c-hover);
+}
+
+.cp-table__cell--type {
+  text-align: center;
+  overflow: visible;
+}
+
+/* Inline text inputs inside cells. Rendered borderless so a row of
+ * cells still reads as a spreadsheet — the input only hints at being
+ * editable when focused. Height/padding match the old read-only text
+ * (which was 6px/10px on the <td>) so toggling edit/view doesn't shift
+ * the layout. */
+.cp-table__input {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 4px;
+  margin: -2px -4px; /* pull back so total cell height stays the same */
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.cp-table__input:hover {
+  border-color: var(--c-border);
+  background: var(--c-bg);
+}
+
+.cp-table__input:focus {
+  border-color: var(--c-accent, #2563eb);
+  background: var(--c-bg);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Control-type select: same visual language as the text inputs, with
+ * a tiny chevron on the right side. */
+.cp-table__select {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font: inherit;
+  color: inherit;
+  outline: none;
+  cursor: pointer;
+}
+
+.cp-table__select:hover {
+  border-color: var(--c-border);
+  background: var(--c-bg);
+}
+
+.cp-table__select:focus {
+  border-color: var(--c-accent, #2563eb);
+  background: var(--c-bg);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Editable CP title in the cp-view header. Fills the available width
+ * and stays borderless until focused, matching the cell inputs. */
+.cp-view__title-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  outline: none;
+}
+
+.cp-view__title-input:hover {
+  border-color: var(--c-border);
+  background: var(--c-bg);
+}
+
+.cp-view__title-input:focus {
+  border-color: var(--c-accent, #2563eb);
+  background: var(--c-bg);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.cp-table__empty {
+  padding: 12px;
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+/* "+ Add row" button row. Sits under each group's rows. The wrapping
+ * <tr>/<td> strip the normal cell borders so the button reads as part
+ * of the group, not a data row. */
+.cp-table__add-row-wrap {
+  background: transparent;
+}
+
+.cp-table__add-row-cell {
+  padding: 4px 6px;
+  border-top: 1px dashed var(--c-border);
+  background: transparent;
+}
+
+.cp-table__add-row {
+  border: 1px dashed var(--c-border);
+  background: transparent;
+  color: var(--c-text-muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cp-table__add-row:hover {
+  border-color: var(--c-accent, #2563eb);
+  color: var(--c-accent, #2563eb);
+  background: var(--c-bg);
+}
+
+.cp-table__add-row:focus-visible {
+  outline: 2px solid var(--c-accent, #2563eb);
+  outline-offset: 2px;
+}
+
+/* Task 89 — "+ Add section" footer. Outside .cp-view__scroll so it does
+ * not scroll away with the table, and visible even when the plan has no
+ * sections yet. Reuses .cp-table__add-row for the dashed, muted look;
+ * this class only handles the placement. */
+.cp-view__footer {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--c-border);
+  background: var(--c-bg);
+}
+
+.cp-view__add-section:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Control-type pill — small colored badge. One class per type so we
+ * can tweak a single color without hunting through the CSS. */
+.cp-pill {
+  display: inline-block;
+  min-width: 26px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  background: var(--c-code-bg);
+  color: var(--c-text-muted);
+  border: 1px solid transparent;
+}
+
+.cp-pill--e {
+  background: rgba(37, 99, 235, 0.12); /* blue */
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.cp-pill--u {
+  background: rgba(16, 185, 129, 0.12); /* green */
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.cp-pill--t {
+  background: rgba(245, 158, 11, 0.15); /* orange */
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.cp-pill--none {
+  /* Muted, so "no selection yet" rows don't visually shout. */
+  color: var(--c-text-muted);
+}
+
+/* Task 98 — a `@media (prefers-color-scheme: dark)` block used to sit
+ * here, giving these three pills light text colours meant for a dark
+ * background. It fired whenever the SYSTEM was dark, but the app's own
+ * surface is cream in every case, so it produced pale text on cream.
+ * It was the only dark-mode rule in the whole stylesheet. Removed
+ * along with pinning the app to light in main. When a real dark mode
+ * is built, these pills need dark counterparts again - but then as
+ * part of a full set, not on their own. */
+
+/* ---------- drag-and-drop ---------- */
+
+/*
+ * Full-window overlay shown while the user is dragging a file over the app.
+ * Sits above everything (z-index stacking context is the .app flex column).
+ * `pointer-events: none` so the child .app elements below still receive the
+ * dragover/drop events — the browser needs those to fire on a target under
+ * the pointer. Without it, the drop would land on the overlay itself and
+ * we'd lose the drop target tracking we do via counter in App.tsx.
+ */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--c-accent-soft);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border: 3px dashed var(--c-accent);
+}
+
+.drop-overlay__panel {
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  padding: 32px 48px;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+}
+
+.drop-overlay__icon {
+  font-size: 36px;
+  color: var(--c-accent);
+  margin-bottom: 8px;
+}
+
+.drop-overlay__message {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.drop-overlay__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+/* Small banner shown when the user drops the wrong kind of file. Kept
+ * inline so it doesn't steal focus the way a modal would. */
+.drop-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(220, 38, 38, 0.1);
+  border-bottom: 1px solid rgba(220, 38, 38, 0.4);
+  font-size: 12px;
+  color: var(--c-text);
+  flex-shrink: 0;
+}
+
+.drop-error__message {
+  flex: 1;
+}
+
+.drop-error__dismiss {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--c-text-muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.drop-error__dismiss:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
+}
+
+/* Confirm-replace modal. Shown only when a file is already loaded and
+ * the user drops another one — per their "ask first" preference. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  min-width: 360px;
+  max-width: 480px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+
+  /* Height safety net — every modal, including ones not written yet.
+   *
+   * The backdrop is `position: fixed; inset: 0` and centres its child
+   * vertically. A flex child taller than its container overflows at
+   * BOTH ends, so without a cap the title/close at the top and the
+   * action buttons at the bottom both end up off-screen with no way
+   * to scroll to either. That is what happened to the work-area /
+   * BDB metadata modal once the locked-metadata accordion was
+   * expanded on a ~800px-tall window.
+   *
+   * Capping the height keeps the centring meaningful and lets the
+   * modal scroll internally. Variants that manage their own height
+   * (.modal--xl, .merge-modal--wide) set a smaller max-height and
+   * scroll an inner element instead; their outer box then never
+   * overflows, so `overflow-y: auto` here is a no-op for them.
+   *
+   * 48px = a little breathing room top and bottom against the
+   * viewport edges. */
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+/* Slice 10I.b UX — used by modals that need more horizontal space,
+ * e.g. the Edit Project modal hosting the custom_data accordion
+ * with its key/value/actions grid. ~50% wider than the default.
+ *
+ * NOTE: the widths here are dead — `.modal.modal--wide` is declared a
+ * second time further down (Slice 10E, metadata modals) with the same
+ * specificity, and the later declaration wins. Kept as a marker of
+ * where the class was introduced; edit the Slice 10E block instead. */
+
+.modal__title {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.modal__body {
+  margin: 0 0 20px 0;
+  font-size: 13px;
+  color: var(--c-text);
+  line-height: 1.5;
+}
+
+/* Secondary, de-emphasised copy inside a modal body. Used for the
+ * "cannot be undone" footer line and the "loading…" placeholder while
+ * we wait for a pre-flight IPC. */
+.modal__muted {
+  color: var(--c-text-muted);
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal__button {
+  padding: 6px 14px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-bg);
+  cursor: pointer;
+}
+
+.modal__button:hover {
+  background: var(--c-hover);
+}
+
+.modal__button--primary {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: #fff;
+}
+
+.modal__button--primary:hover {
+  background: var(--c-accent);
+  filter: brightness(1.1);
+}
+
+.modal__button--danger {
+  background: var(--c-danger, #a03a2a);
+  border-color: var(--c-danger, #a03a2a);
+  color: #fff;
+}
+
+.modal__button--danger:hover {
+  background: var(--c-danger, #a03a2a);
+  filter: brightness(1.1);
+}
+
+.modal__button:disabled,
+.modal__button--primary:disabled,
+.modal__button--danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* Radio group inside a modal — used by the New-control-plan slot picker. */
+.modal__fieldset {
+  margin: 0 0 14px 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.modal__fieldset > .modal__field-label {
+  margin-bottom: 4px;
+}
+
+.modal__radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.modal__radio input[type="radio"]:disabled + span {
+  color: var(--c-text-muted);
+}
+
+.modal__radio input[type="radio"]:disabled {
+  cursor: not-allowed;
+}
+
+/* Form-in-modal styles. Used by the Duplicate BDB rename dialog and
+ * any future modal that needs a text input. Kept close to the modal
+ * rules so the visual rhythm matches. */
+.modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 14px 0;
+}
+
+/* Inline checkbox variant — used for "Also do X" toggles in dialogs
+ * (e.g. Duplicate BDB → also duplicate attached control plans).
+ * Overrides the default column stacking so the checkbox + label sit
+ * on one row, vertically centred. */
+.modal__field--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal__field--checkbox > .modal__field-label {
+  font-size: 13px;
+  font-weight: normal;
+  color: inherit;
+}
+
+.modal__field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text-muted);
+}
+
+.modal__input {
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: var(--c-bg);
+  color: inherit;
+}
+
+.modal__input:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-soft);
+}
+
+.modal__input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modal__error {
+  margin: 0 0 14px 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  /* Task 79 — error text can carry a URL or another long unbroken
+   * token from an API response. Without this it runs past the box
+   * edge instead of wrapping. */
+  overflow-wrap: anywhere;
+  color: var(--c-danger, #a03a2a);
+  background: var(--c-danger-soft, #fdecea);
+  border: 1px solid var(--c-danger, #a03a2a);
+  border-radius: 6px;
+  line-height: 1.4;
+}
+
+/* Radio-button pickers inside modals (e.g. MoveWorkSpecModal).
+ * Renders as a scrollable vertical list — one contract per row — so
+ * long contract lists stay usable without blowing the dialog height.
+ * Uses `flex-direction: column` to stack the <label>s, plus the
+ * selector override for contained <input type="radio"> so the radio
+ * lines up left of the text on every row. */
+.modal__picker-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 14px 0;
+  padding: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+}
+
+.modal__picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  margin: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--c-text);
+}
+
+.modal__picker-row + .modal__picker-row {
+  border-top: 1px solid var(--c-border);
+}
+
+.modal__picker-row:hover {
+  background: var(--c-hover);
+}
+
+.modal__picker-row input[type="radio"] {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.modal__picker-row > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal__picker-empty {
+  padding: 10px 12px;
+  text-align: center;
+  font-style: italic;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+/* --- Grouped picker (Slice 6O.4 MoveControlPlanModal) ---------------- */
+
+/* Outer group = contract, inner subgroup = work area. We use margins +
+ * borders rather than paddings alone so the visual indent matches the
+ * sidebar's own contract/work-area layout: contract at the left edge,
+ * work-area inset, BDBs inset further. */
+.modal__picker-group + .modal__picker-group {
+  border-top: 1px solid var(--c-border);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.modal__picker-group-header {
+  padding: 6px 8px 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.modal__picker-subgroup {
+  margin-left: 10px;
+}
+
+.modal__picker-subgroup-header {
+  padding: 4px 8px 2px 8px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--c-text-muted);
+}
+
+.modal__picker-subgroup .modal__picker-row {
+  margin-left: 10px;
+}
+
+/* Disabled row (e.g. BDB with both slots filled) — muted + no hover. */
+.modal__picker-row--disabled {
+  color: var(--c-text-muted);
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.modal__picker-row--disabled:hover {
+  background: transparent;
+}
+
+/* Small inline tag shown next to a picker row's label, e.g. "(current)"
+ * or "Both slots filled". Renders after the main label with a gap. */
+.modal__picker-tag {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+/* Bulleted preview list inside a modal (e.g. referenced work areas
+ * in DeleteContractModal). Plain bulleted list with compact spacing
+ * so the dialog stays short when several rows are referenced. */
+.modal__list {
+  margin: 0 0 14px 0;
+  padding: 8px 10px 8px 28px;
+  max-height: 180px;
+  overflow-y: auto;
+  list-style: disc outside;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.modal__list li + li {
+  margin-top: 2px;
+}
+
+/* Tree context menu — right-click on a BDB node in the sidebar.
+ * Small popup anchored at the mouse position. Mirrors the rail-popout
+ * styling (same shadow/border vocabulary) but sized for single-line
+ * menu items so the whole thing reads as a compact action list. */
+.tree-context-menu {
+  position: fixed;
+  /* Above the modal backdrop (200) — the section editor's table
+     context menu uses this class inside the Merge dialog. */
+  z-index: 230;
+  min-width: 180px;
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-context-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tree-context-menu__item:hover,
+.tree-context-menu__item:focus-visible {
+  background: var(--c-hover);
+  outline: none;
+}
+
+/* Destructive menu item variant — used for "Delete control plan…" etc. */
+.tree-context-menu__item--danger {
+  color: var(--c-danger, #a03a2a);
+}
+
+/*
+ * Inert menu item variant — rendered as a read-only label with a muted
+ * foreground, no hover state, and no click target. Used by Slice 10H.6d
+ * to explain why the virtual PFBB work_spec has no actions.
+ */
+.tree-context-menu__item--disabled {
+  color: var(--c-text-muted);
+  cursor: default;
+  font-style: italic;
+}
+
+.tree-context-menu__item--disabled:hover,
+.tree-context-menu__item--disabled:focus-visible {
+  background: transparent;
+}
+
+/* ---------- Contracts card (Project view, Slice 6I) ---------- */
+
+/*
+ * Mirrors the Glasshouse card style used by .counter above:
+ * muted border, 8px radius, same background as the project body.
+ * Sits below the counters on the Project tab.
+ */
+.contracts-card {
+  margin-top: 24px;
+  padding: 16px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-bg);
+}
+
+.contracts-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.contracts-card__header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.contracts-card__new {
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 12px;
+  border: 1px solid var(--c-border-strong);
+  /* #250 — left side of a split button; the caret toggle is flush on the
+   * right, so only the left corners are rounded. */
+  border-radius: 6px 0 0 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.contracts-card__new:hover,
+.contracts-card__new:focus-visible {
+  background: var(--c-hover);
+  outline: none;
+}
+
+/* #250 — split-button caret that opens the "standard contracts" menu.
+ * Sits flush against the New-contract button so the two read as one. */
+.contracts-card__menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 9px;
+  border: 1px solid var(--c-border-strong);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.contracts-card__menu-toggle:hover,
+.contracts-card__menu-toggle:focus-visible,
+.contracts-card__menu-toggle[aria-expanded="true"] {
+  background: var(--c-hover);
+  outline: none;
+}
+
+.contracts-card__empty {
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.contracts-card__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.contracts-card__row {
+  padding: 0;
+}
+
+/*
+ * Horizontal rule between rows. We render a real <hr> so it's part of
+ * the semantic tree — the CSS just styles it as a hairline that matches
+ * the card border.
+ */
+.contracts-card__divider {
+  border: 0;
+  border-top: 1px solid var(--c-border);
+  margin: 0;
+}
+
+/*
+ * Row layout — label takes the available space, dirty-dot and count
+ * sit next to it with explicit gaps, kebab button anchors on the right.
+ */
+.contracts-card__row-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px;
+  min-height: 36px;
+}
+
+.contracts-card__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.contracts-card__dirty {
+  color: var(--c-accent);
+  font-size: 10px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.contracts-card__count {
+  flex: 0 0 auto;
+  color: var(--c-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * .contracts-card__actions is the positioning context for the kebab
+ * popover — it floats below the button, anchored to its right edge.
+ */
+.contracts-card__actions {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+/*
+ * Icon-style button: no border/background in the resting state, so it
+ * reads as an icon rather than a "real" button. The hit area stays
+ * 28×28 so it's still comfortable to click.
+ */
+.contracts-card__kebab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-text-muted);
+  cursor: pointer;
+}
+
+.contracts-card__kebab:hover,
+.contracts-card__kebab:focus-visible,
+.contracts-card__kebab[aria-expanded="true"] {
+  background: var(--c-hover);
+  color: var(--c-text);
+  outline: none;
+}
+
+.contracts-card__kebab-glyph {
+  font-size: 18px;
+  line-height: 1;
+  /* Shift up just a hair — the ⋮ glyph renders with extra bottom bearing
+   * in most fonts; this keeps it visually centered. */
+  transform: translateY(-1px);
+}
+
+/*
+ * Popover menu. Matches the .tree-context-menu styling so the whole
+ * app has one "popup menu" look. Positioned absolutely under the kebab
+ * button; right-aligned so it never overflows the card on the right.
+ */
+.contracts-card__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 140px;
+  padding: 4px 0;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 8px;
+  background: var(--c-bg);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.contracts-card__menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.contracts-card__menu-item:hover,
+.contracts-card__menu-item:focus-visible {
+  background: var(--c-hover);
+  outline: none;
+}
+
+.contracts-card__menu-item--danger {
+  color: var(--c-danger, #a03a2a);
+}
+
+/* =========================================================================
+ * Import-from-moliospec modal (Slice 6K.3)
+ *
+ * The modal is wider than the standard one (we need room for tree rows
+ * with inline landing-spot pickers) and has its own tree + collision
+ * controls. Everything below is scoped under `.import-modal` so it
+ * doesn't leak into other dialogs.
+ * ========================================================================= */
+
+.import-modal {
+  min-width: 640px;
+  max-width: 860px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.import-modal__tree {
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0 12px 0;
+  background: var(--c-bg);
+}
+
+.import-modal__tree--loading,
+.import-modal__tree--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.import-modal__group {
+  margin-bottom: 12px;
+}
+
+.import-modal__group-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--c-text-muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 4px;
+}
+
+.import-modal__empty-note {
+  font-size: 12px;
+  padding: 4px 0 4px 20px;
+}
+
+.import-modal__row {
+  padding: 3px 0;
+}
+
+.import-modal__row--wa {
+  padding-left: 4px;
+}
+
+.import-modal__row--bdb {
+  padding-left: 24px;
+}
+
+.import-modal__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.import-modal__row-label {
+  user-select: none;
+}
+
+.import-modal__row-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0 4px 26px;
+  font-size: 12px;
+}
+
+.import-modal__children {
+  margin-top: 2px;
+}
+
+.import-modal__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.import-modal__inline-label {
+  color: var(--c-text-muted);
+  font-size: 11px;
+}
+
+.import-modal__inline-note {
+  color: var(--c-danger, #a03a2a);
+  font-size: 11px;
+}
+
+.import-modal__select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-bg-elev);
+  color: var(--c-text);
+  cursor: pointer;
+  max-width: 260px;
+}
+
+.import-modal__select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.import-modal__collision {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(160, 58, 42, 0.08);
+  border: 1px solid rgba(160, 58, 42, 0.35);
+  border-radius: 6px;
+}
+
+.import-modal__collision-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 700;
+  color: var(--c-danger, #a03a2a);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(160, 58, 42, 0.15);
+}
+
+.import-modal__collision-msg {
+  font-size: 11px;
+  color: var(--c-text);
+}
+
+.import-modal__rename-input {
+  width: 160px;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
+.import-modal__check-banner {
+  margin: 0 0 8px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.import-modal__check-banner--ok {
+  background: rgba(70, 140, 90, 0.1);
+  border: 1px solid rgba(70, 140, 90, 0.35);
+  color: var(--c-text);
+}
+
+.import-modal__check-banner--warn {
+  background: rgba(160, 58, 42, 0.08);
+  border: 1px solid rgba(160, 58, 42, 0.35);
+  color: var(--c-text);
+}
+
+.import-modal__actions {
+  margin-top: 8px;
+}
+
+.import-modal__success {
+  padding: 8px 0;
+  font-size: 13px;
+}
+
+/* -----------------------------------------------------------------------
+ * Export card (Phase 7.1) — Project-tab "Export as PDF" picker.
+ * Mirrors the Contracts card styling so the two panels line up
+ * vertically.
+ * --------------------------------------------------------------------- */
+
+.export-card {
+  margin-top: 24px;
+  padding: 16px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-bg);
+}
+
+.export-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.export-card__header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.export-card__empty {
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.export-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.export-card__label {
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+.export-card__select {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: var(--c-bg);
+  color: inherit;
+  width: 100%;
+  max-width: 560px;
+}
+
+.export-card__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--c-text);
+  cursor: pointer;
+}
+
+.export-card__checkbox input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.export-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.export-card__button {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.export-card__button:hover:not(:disabled),
+.export-card__button:focus-visible:not(:disabled) {
+  background: var(--c-hover);
+  outline: none;
+}
+
+.export-card__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.export-card__status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+.export-card__status--ok {
+  color: var(--c-text);
+}
+
+.export-card__status--err {
+  color: rgba(160, 58, 42, 0.9);
+}
+
+.export-card__status--muted {
+  color: var(--c-text-muted);
+}
+
+/* Secondary action on the Export card — "Batch export…" sits next to
+ * the primary single-export button. Same shell, muted tone so the
+ * primary still reads as primary. */
+.export-card__button--secondary {
+  background: transparent;
+}
+
+/* --------------------------------------------------------------------
+ * Batch-export modal (Phase 7.3)
+ * Reuses .modal-backdrop / .modal for the shell — styles below are the
+ * tree-specific bits + the inherited-flags row.
+ * -------------------------------------------------------------------- */
+.batch-export-modal {
+  /* Slice 10H.10-UX — modal widened ~50% (520/640 → 780/960). Filter
+   * input + nested CPs make the content breathe better at this size. */
+  min-width: 780px;
+  max-width: 960px;
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.batch-export-modal__filter {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.batch-export-modal__filter-input {
+  flex: 1 1 auto;
+  padding: 6px 28px 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+
+.batch-export-modal__filter-input:focus {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -1px;
+}
+
+.batch-export-modal__filter-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.batch-export-modal__filter-clear:hover,
+.batch-export-modal__filter-clear:focus-visible {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--c-text);
+  outline: none;
+}
+
+/* "Group output by" selector — one row, label on the left + a styled
+ * native <select> on the right. Mirrors the filter input's look so the
+ * top of the modal feels visually consistent. */
+.batch-export-modal__groupby {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.batch-export-modal__groupby-label {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--c-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.batch-export-modal__groupby-select {
+  flex: 1 1 auto;
+  /* Strip the native chrome on macOS / Windows so we can match the
+   * filter-input look. The chevron is re-added via the background
+   * SVG below. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 6px 28px 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--c-text);
+  background-color: var(--c-bg);
+  /* Small chevron pointing down on the right edge. Uses
+   * `currentColor`-adjacent shade so it remains visible in both
+   * light and dark themes. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='none' stroke='%23666' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M3 4.5l3 3 3-3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.batch-export-modal__groupby-select:focus {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -1px;
+}
+
+.batch-export-modal__groupby-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Wrapper around a BDB row plus its nested CPs. Keeps them vertically
+ * grouped without extra indent beyond the existing __children rule. */
+.batch-export-modal__bdb {
+  display: block;
+}
+
+.batch-export-modal__flags {
+  display: flex;
+  gap: 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.batch-export-modal__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.batch-export-modal__flag input[type="checkbox"] {
+  accent-color: var(--c-accent);
+}
+
+.batch-export-modal__select-all {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.batch-export-modal__count {
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.batch-export-modal__tree {
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--c-bg);
+}
+
+.batch-export-modal__group + .batch-export-modal__group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--c-border);
+}
+
+.batch-export-modal__group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-text-muted);
+  margin: 0 0 4px 0;
+}
+
+.batch-export-modal__row {
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.batch-export-modal__row--contract {
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.batch-export-modal__row--wa {
+  font-weight: 500;
+}
+
+.batch-export-modal__row--wa-self {
+  font-style: italic;
+  color: var(--c-text-muted);
+}
+
+.batch-export-modal__row--bdb,
+.batch-export-modal__row--cp {
+  color: var(--c-text);
+}
+
+.batch-export-modal__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.batch-export-modal__check input[type="checkbox"] {
+  accent-color: var(--c-accent);
+}
+
+.batch-export-modal__children {
+  padding-left: 20px;
+}
+
+.batch-export-modal__owner {
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.batch-export-modal__empty {
+  color: var(--c-text-muted);
+  font-size: 13px;
+  padding: 14px 4px;
+}
+
+.batch-export-modal__status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+.batch-export-modal__status--ok {
+  color: var(--c-text);
+}
+
+.batch-export-modal__status--warn {
+  color: var(--c-text);
+}
+
+.batch-export-modal__status--warn ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  font-size: 12px;
+  color: rgba(160, 58, 42, 0.9);
+}
+
+.batch-export-modal__status--err {
+  color: rgba(160, 58, 42, 0.9);
+}
+
+.batch-export-modal__status--muted {
+  color: var(--c-text-muted);
+}
+
+/* ---------------------------------------------------------------------- */
+/* 6L.5a.4 — image resize handles.                                         */
+/*                                                                        */
+/* TipTap's ResizableNodeView (from @tiptap/core) wraps images in          */
+/*   <div data-resize-container>                                          */
+/*     <div data-resize-wrapper>                                          */
+/*       <img ...>                                                       */
+/*       <div data-resize-handle="top-left">    (and 3 more corners)     */
+/*     </div>                                                             */
+/*   </div>                                                               */
+/*                                                                        */
+/* The handles are empty divs with zero size by default — NodeView        */
+/* deliberately leaves styling to the host app. Below we give them a      */
+/* small green square, reveal them only on hover / during resize, and    */
+/* set direction-aware cursors so the diagonal-resize affordance is      */
+/* obvious. Aspect is locked (see Image.configure), so any corner does   */
+/* the same thing — we just show all four for the conventional look.     */
+/* ---------------------------------------------------------------------- */
+[data-resize-container][data-node="image"] {
+  /* flex container; default is `flex` which stretches inside the        */
+  /* surrounding paragraph. Keep it inline-block-ish so the image sits   */
+  /* on its own line like the previous block-level <img>.                */
+  justify-content: flex-start;
+}
+
+[data-resize-wrapper] {
+  /* relative was set inline by TipTap; make sure nothing overrides it. */
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+[data-resize-handle] {
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border: 1px solid var(--c-accent-strong, #4c8533);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 10;
+  /* Nudge the handles so they sit centered on the corners of the image */
+  /* rather than flush inside it. Handle divs are 10×10 so -5px on each */
+  /* axis moves the centre onto the corner.                              */
+}
+
+[data-resize-handle="top-left"] {
+  margin: -5px 0 0 -5px;
+  cursor: nwse-resize;
+}
+[data-resize-handle="top-right"] {
+  margin: -5px -5px 0 0;
+  cursor: nesw-resize;
+}
+[data-resize-handle="bottom-left"] {
+  margin: 0 0 -5px -5px;
+  cursor: nesw-resize;
+}
+[data-resize-handle="bottom-right"] {
+  margin: 0 -5px -5px 0;
+  cursor: nwse-resize;
+}
+
+/* Reveal handles when the user mouses over the image, or while a resize */
+/* drag is active (TipTap sets data-resize-state="true" on the container */
+/* during drag).                                                         */
+[data-resize-container]:hover [data-resize-handle],
+[data-resize-container][data-resize-state="true"] [data-resize-handle] {
+  opacity: 1;
+}
+
+/* While dragging, give a subtle outline on the image so the resize feels */
+/* responsive even if the mouse drifts off the handle.                    */
+[data-resize-container][data-resize-state="true"] img {
+  outline: 1px dashed var(--c-accent, #65b144);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* 6L.2 — external URL links                                               */
+/*                                                                        */
+/* Links are rendered as blue + underline in both read and edit mode.     */
+/* TipTap's Link extension has `openOnClick: false`, so clicking a link   */
+/* in the editor moves the caret (not open the URL). In read mode the    */
+/* link is a plain `<a href>`; the browser will open it on click the     */
+/* normal way. Both surfaces share the same visual so the user isn't     */
+/* surprised by a formatting shift when toggling edit mode.              */
+/* ---------------------------------------------------------------------- */
+.section__body a,
+.section-editor__content a {
+  color: #0a66c2;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* `cursor: text` in edit mode (the caret should land here on click),  */
+  /* `cursor: pointer` in read mode so the link feels actionable.        */
+}
+
+.section-editor__content a {
+  cursor: text;
+}
+
+.section__body a {
+  cursor: pointer;
+}
+
+.section__body a:hover,
+.section-editor__content a:hover {
+  color: #0952a0;
+  text-decoration-thickness: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * Slice 10E — Edit work-area + BDB metadata modals.
+ *
+ * `.modal--wide` widens the shell so the 2-column grid of fields fits
+ * without wrapping on a normal desktop. `.meta-modal__grid` is the
+ * 2-col grid. `.meta-modal__field--wide` makes a field span both cols
+ * (used for the BDB Name input + PFBB checkbox).
+ *
+ * `.meta-modal__locked*` styles the read-only accordion that reveals
+ * Molio-sourced columns the UI can't edit.
+ * ───────────────────────────────────────────────────────────────── */
+
+.modal.modal--wide {
+  min-width: 560px;
+  max-width: 680px;
+}
+
+/* Slice 10K.8 — GlobalAttachmentsModal uses this to be 50 % bigger in
+ * both directions than .modal--wide. 560→840 min-width, 680→1020
+ * max-width, plus an explicit min-height so the shell always occupies
+ * ~60 % of viewport height (there is no natural "height" on the base
+ * .modal). Capped at 85vh so the Close button stays reachable on short
+ * windows. Body uses flex column + scrollable table wrapper. */
+.modal.modal--xl {
+  min-width: 840px;
+  max-width: 1020px;
+  min-height: 60vh;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal.modal--xl > .modal__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+/* IMP-API — Unified import source picker (modal). 80% × 80%
+ * footprint, two tabs across the top: "Import a file" (drop-zone +
+ * picker) and "Browse Molio" (list + filter + multi-select). */
+.import-source-modal {
+  width: 80vw;
+  height: 80vh;
+  background: var(--c-surface, #fff);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.import-source-modal--drop {
+  /* Subtle highlight while a file is being dragged over the modal. */
+  outline: 2px dashed var(--c-accent, #2563eb);
+  outline-offset: -8px;
+}
+.import-source-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color, #d0d7de);
+}
+.import-source-modal__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.import-source-modal__tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border-color, #d0d7de);
+  background: var(--c-surface-alt, #f6f8fa);
+}
+.import-source-modal__tab {
+  background: transparent;
+  border: 0;
+  padding: 10px 18px;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  color: var(--c-text-muted);
+}
+.import-source-modal__tab--active {
+  color: var(--c-text);
+  border-bottom-color: var(--c-accent, #2563eb);
+  font-weight: 600;
+}
+.import-source-modal__body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 16px 18px;
+}
+.import-source-modal__hint {
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+.import-source-modal__hint--warn {
+  color: #92400e;
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+  padding: 12px 14px;
+  border-radius: 2px;
+}
+.import-source-modal__hint--error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-left: 3px solid #dc2626;
+  padding: 12px 14px;
+  border-radius: 2px;
+}
+.import-source-modal__error {
+  margin-top: 8px;
+  color: #991b1b;
+  background: #fef2f2;
+  border-left: 3px solid #dc2626;
+  padding: 8px 10px;
+  font-size: 13px;
+  border-radius: 2px;
+}
+.import-source-modal__file-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.import-source-modal__dropzone {
+  border: 2px dashed var(--border-color, #d0d7de);
+  border-radius: 8px;
+  padding: 48px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+.import-source-modal__dropzone--hover {
+  border-color: var(--c-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.04);
+}
+.import-source-modal__browse-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+.import-source-modal__browse-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.import-source-modal__filter {
+  flex: 1 1 auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, #d0d7de);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.import-source-modal__newest-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.import-source-modal__list {
+  flex: 1 1 auto;
+  overflow: auto;
+  border: 1px solid var(--border-color, #d0d7de);
+  border-radius: 4px;
+}
+.import-source-modal__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.import-source-modal__table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--c-surface-alt, #f6f8fa);
+  border-bottom: 1px solid var(--border-color, #d0d7de);
+  padding: 6px 10px;
+  text-align: left;
+  z-index: 1;
+}
+.import-source-modal__table tbody tr {
+  cursor: pointer;
+}
+.import-source-modal__table tbody tr:hover {
+  background: var(--c-surface-alt, #f6f8fa);
+}
+.import-source-modal__table tbody td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border-color-faint, #eaeef2);
+}
+.import-source-modal__row--selected {
+  background: rgba(37, 99, 235, 0.08);
+}
+.import-source-modal__row--selected:hover {
+  background: rgba(37, 99, 235, 0.12);
+}
+.import-source-modal__browse-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.import-source-modal__count {
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+/* CP-API — Default Control Plan modal.
+ * Sized to 95% × 90% of the viewport (revised 2026-04-27 from
+ * 80%×80% to give the 11-column CP table more horizontal room),
+ * with a scrollable body that holds the read-only CP table. The
+ * header stays pinned. */
+.default-cp-modal {
+  width: 95vw;
+  height: 90vh;
+  background: var(--c-surface, #fff);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.default-cp-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color, #d0d7de);
+  flex-shrink: 0;
+}
+.default-cp-modal__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+.default-cp-modal__body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0;
+}
+.default-cp-modal__hint {
+  margin: 24px;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+.default-cp-modal__hint--warn {
+  color: #92400e;
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+  padding: 12px 14px;
+  border-radius: 2px;
+}
+.default-cp-modal__hint--error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-left: 3px solid #dc2626;
+  padding: 12px 14px;
+  border-radius: 2px;
+}
+.default-cp-modal__table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: max-content;
+}
+.default-cp-modal__table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--c-surface-alt, #f6f8fa);
+  border-bottom: 1px solid var(--border-color, #d0d7de);
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  z-index: 2;
+}
+.default-cp-modal__group td {
+  background: var(--c-surface-alt, #f6f8fa);
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color, #d0d7de);
+}
+.default-cp-modal__row td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color-faint, #eaeef2);
+  vertical-align: top;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+/* Slice 10L.7 — compact square icon-buttons used inside tables
+ * (AttachmentsModal row actions). Same visual weight as one of the
+ * text `.modal__button`s but just an icon centered in a 28x28 box. */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-color, #d0d7de);
+  border-radius: 6px;
+  background: var(--button-bg, #ffffff);
+  color: var(--text-color, #1f2328);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--button-hover-bg, #f3f4f6);
+  border-color: var(--border-strong, #b1bac4);
+}
+
+.icon-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Danger-variant: hover goes red to flag destructive actions. */
+.icon-button--danger:hover:not(:disabled) {
+  background: #fdeaea;
+  border-color: #e5484d;
+  color: #c0353a;
+}
+
+/* ---------------------------------------------------------------------
+ * Attachment tables — fixed column widths so rows don't reshuffle when
+ * a filename gets longer or shorter.
+ *
+ * Why `table-layout: fixed` + `<colgroup>`: the default `auto` layout
+ * recalculates every column's width on every render (based on the
+ * content), so "Type", "Size" and "Actions" visibly jump when a
+ * long filename appears. Fixed layout means widths come from the
+ * `<col>` tags only — Type / Size / Location / Actions stay put,
+ * and the Name column absorbs any remaining slack.
+ *
+ * `.attachments-table__name` lets a long filename ellipsise rather
+ * than push the other columns around.
+ * ------------------------------------------------------------------- */
+.attachments-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.attachments-table th,
+.attachments-table td {
+  padding: 4px 8px;
+  vertical-align: middle;
+}
+
+.attachments-table th {
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color, #d0d7de);
+}
+
+.attachments-table th.attachments-table__col--right,
+.attachments-table td.attachments-table__col--right {
+  text-align: right;
+}
+
+/* The Name column: fill whatever width is left after the fixed
+ * columns and ellipsise if the filename is too long. `word-break`
+ * as a fallback for filenames with no spaces. */
+.attachments-table__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Actions cell: the row-actions sit side-by-side; keep them tight
+ * so the whole button group fits inside the fixed column width. */
+.attachments-table__actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.meta-modal__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+  row-gap: 0;
+}
+
+.meta-modal__field--wide {
+  grid-column: 1 / -1;
+}
+
+.meta-modal__checkbox-field {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 14px 0;
+  margin: 0;
+}
+
+.meta-modal__checkbox-field input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--c-accent);
+}
+
+.meta-modal__locked {
+  margin: 6px 0 16px 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--c-border);
+  border-radius: 8px;
+  background: var(--c-bg);
+}
+
+.meta-modal__locked-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.meta-modal__locked-toggle:hover {
+  color: var(--c-text);
+}
+
+.meta-modal__locked-chev {
+  display: inline-block;
+  width: 12px;
+  color: var(--c-text-muted);
+}
+
+.meta-modal__locked-list {
+  margin: 10px 0 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: 6px;
+}
+
+.meta-modal__locked-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  column-gap: 12px;
+  align-items: start;
+  font-size: 12px;
+}
+
+.meta-modal__locked-label {
+  margin: 0;
+  padding: 4px 0;
+  color: var(--c-text-muted);
+  font-weight: 500;
+  cursor: help;
+}
+
+.meta-modal__locked-value {
+  margin: 0;
+  padding: 4px 0;
+  word-break: break-all;
+  color: var(--c-text);
+}
+
+.meta-modal__locked-value code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.meta-modal__locked-empty {
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+/* -----------------------------------------------------------------------
+ * PFBB migration banner (Slice 10H.6b)
+ *
+ * Shown at the very top of <main class="main-pane"> when the currently
+ * loaded project has PFBB masters living outside the virtual
+ * "Projektfælles bygningsdelsbeskrivelser" work_spec. Warning style —
+ * amber palette — to distinguish from the existing red/brown import-modal
+ * warning. Dismissible; see pfbbMigrationPrefs.ts.
+ * --------------------------------------------------------------------- */
+
+.pfbb-migration-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 8px 16px 0 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(194, 125, 14, 0.1);
+  border: 1px solid rgba(194, 125, 14, 0.4);
+  color: var(--c-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pfbb-migration-banner__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pfbb-migration-banner__title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--c-text);
+}
+
+.pfbb-migration-banner__text {
+  margin-bottom: 6px;
+  color: var(--c-text);
+}
+
+.pfbb-migration-banner__hint {
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.pfbb-migration-banner__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.pfbb-migration-banner__btn {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  color: var(--c-text);
+  white-space: nowrap;
+}
+
+.pfbb-migration-banner__btn:hover:not(:disabled) {
+  background: var(--c-bg-elev);
+}
+
+.pfbb-migration-banner__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pfbb-migration-banner__btn--primary {
+  background: rgba(194, 125, 14, 0.9);
+  border-color: rgba(130, 85, 10, 0.8);
+  color: #fff;
+}
+
+.pfbb-migration-banner__btn--primary:hover:not(:disabled) {
+  background: rgba(170, 110, 12, 0.95);
+}
+
+.pfbb-migration-banner__error {
+  margin: 4px 16px 0 16px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(160, 58, 42, 0.08);
+  border: 1px solid rgba(160, 58, 42, 0.35);
+  color: var(--c-text);
+  font-size: 12px;
+}
+
+/* Slice 10H.6c — inline info / error lines inside EditBdbModal. */
+.meta-modal__info-line {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(194, 125, 14, 0.1);
+  border: 1px solid rgba(194, 125, 14, 0.4);
+  color: var(--c-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.meta-modal__error-line {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(160, 58, 42, 0.08);
+  border: 1px solid rgba(160, 58, 42, 0.35);
+  color: var(--c-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Slice 10H.9 — muted informational line inside EditBdbModal. */
+.meta-modal__hint-line {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-border);
+  color: var(--c-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* -----------------------------------------------------------------------
+ * PFBB master section block (Slice 10H.7 — read-only inherited text
+ * shown inside a PFBB child's editor view).
+ *
+ * Grey tone + muted foreground = "this is authoritative text owned by
+ * the master, you can't edit it here." The same palette will drive the
+ * PDF export (10H.10) so the on-screen and on-paper affordance match.
+ * --------------------------------------------------------------------- */
+
+.master-section-block {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  background: var(--c-bg-elev);
+  color: var(--c-text-muted);
+  cursor: default;
+}
+
+.master-section-block__header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+.master-section-block__section-no {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.master-section-block__heading {
+  color: var(--c-text);
+  font-weight: 600;
+}
+
+.master-section-block__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--c-text-muted);
+}
+
+.master-section-block__body--empty {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Inline content inherits master-muted color but images + tables keep
+ * their natural appearance — they carry their own colour. */
+.master-section-block__body p,
+.master-section-block__body li,
+.master-section-block__body h1,
+.master-section-block__body h2,
+.master-section-block__body h3,
+.master-section-block__body h4 {
+  color: inherit;
+}
+
+.master-section-block__body a {
+  color: var(--c-text);
+  text-decoration: underline;
+}
+
+/* -----------------------------------------------------------------------
+ * PFBB child supplement — inline inside SpecView (Slice 10H.7.b Commit 2)
+ *
+ * Rendered beneath the grey master block (`.master-section-block`) in
+ * a PFBB child row. Visually distinct from the master by a left-edge
+ * accent and slight inset; otherwise inherits the normal spec
+ * typography so print layout + compact view behave consistently.
+ * --------------------------------------------------------------------- */
+
+.section--pfbb-child .master-section-block {
+  margin: 8px 0 6px;
+}
+
+.pfbb-supplement {
+  padding: 6px 12px 10px;
+  margin: 0 0 10px;
+  border-left: 3px solid var(--c-accent, #1d6fbd);
+  background: var(--c-bg);
+}
+
+.pfbb-supplement__label {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pfbb-supplement__label-text {
+  flex: 1 1 auto;
+}
+
+/* Slice 10H.7.b polish — explicit Delete-supplement icon. Borderless
+ * by default; turns red on hover so the destructive-ness is obvious. */
+.pfbb-supplement__delete {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.pfbb-supplement__delete:hover,
+.pfbb-supplement__delete:focus-visible {
+  background: rgba(160, 58, 42, 0.1);
+  color: var(--c-danger, #a03a2a);
+  outline: none;
+}
+
+.pfbb-supplement__dirty {
+  color: var(--c-accent, #1d6fbd);
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.pfbb-supplement__add {
+  align-self: flex-start;
+  margin: 0 0 10px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  background: transparent;
+  border: 1px dashed var(--c-border);
+  border-radius: 5px;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.pfbb-supplement__add:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
+  border-style: solid;
+}
+
+/* Slice 10H.7.b polish — TOC marker for master sections that have a
+ * child supplement (on disk or pending). Small filled dot in the
+ * accent colour at the end of the row. */
+.toc__link--has-supplement {
+  position: relative;
+}
+
+.toc__supplement-dot {
+  margin-left: 6px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--c-accent, #1d6fbd);
+  vertical-align: middle;
+}
+
+/* UX3 (2026-04-27) — TOC marker for sections that differ from the
+ * loaded Version reference. Neutral slate dot, distinct from the
+ * accent-blue supplement dot. Same size + alignment so the row
+ * height stays stable. */
+.toc__link--has-change {
+  position: relative;
+}
+
+.toc__change-dot {
+  margin-left: 6px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--c-text-muted, #64748b);
+  vertical-align: middle;
+}
+
+/* Slice 10H.11 / #235 — red banner at the top of a PFBB child view
+ * when there are broken supplements. Click to expand the per-row
+ * list with a Delete button per row. */
+.pfbb-broken-banner {
+  margin: 8px 16px 0 16px;
+  border-radius: 8px;
+  background: rgba(160, 58, 42, 0.08);
+  border: 1px solid rgba(160, 58, 42, 0.45);
+  color: var(--c-text);
+  font-size: 13px;
+}
+
+.pfbb-broken-banner__summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.pfbb-broken-banner__summary:hover,
+.pfbb-broken-banner__summary:focus-visible {
+  background: rgba(160, 58, 42, 0.06);
+  outline: none;
+}
+
+.pfbb-broken-banner__icon {
+  color: #a03a2a;
+  font-weight: 700;
+}
+
+.pfbb-broken-banner__label {
+  flex: 1 1 auto;
+  color: #a03a2a;
+  font-weight: 600;
+}
+
+.pfbb-broken-banner__chevron {
+  color: #a03a2a;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pfbb-broken-banner__list {
+  list-style: none;
+  margin: 0;
+  padding: 0 14px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pfbb-broken-banner__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.pfbb-broken-banner__row-text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pfbb-broken-banner__row-label {
+  font-weight: 600;
+}
+
+.pfbb-broken-banner__row-reason {
+  font-size: 11px;
+  color: var(--c-text-muted);
+}
+
+.pfbb-broken-banner__row-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.pfbb-broken-banner__btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  color: var(--c-text);
+  cursor: pointer;
+}
+
+.pfbb-broken-banner__btn:hover,
+.pfbb-broken-banner__btn:focus-visible {
+  background: rgba(0, 0, 0, 0.04);
+  outline: none;
+}
+
+.pfbb-broken-banner__btn--danger {
+  border-color: #a03a2a;
+  color: #a03a2a;
+}
+
+.pfbb-broken-banner__btn--danger:hover,
+.pfbb-broken-banner__btn--danger:focus-visible {
+  background: rgba(160, 58, 42, 0.08);
+  color: #a03a2a;
+}
+
+/* Slice 10I / 10I.b — custom_data debug accordion on the Edit
+ * Project modal. Read/write surface for the file-wide key/value
+ * extension table.
+ *
+ * Layout: a 3-column grid [key 220px | value 1fr | actions auto]
+ * so the columns line up cleanly across rows regardless of value
+ * length. Warnings and edit/add forms span all columns via
+ * `grid-column: 1 / -1` so they break out of the 3-column flow. */
+
+.custom-data__row {
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: start;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.custom-data__label {
+  margin: 0;
+  padding: 4px 0;
+  color: var(--c-text-muted);
+  font-weight: 500;
+  word-break: break-word;
+  align-self: center;
+}
+
+.custom-data__dirty {
+  color: var(--c-accent, #1d6fbd);
+  font-weight: 700;
+}
+
+.custom-data__value {
+  margin: 0;
+  padding: 4px 0;
+  min-width: 0;
+  align-self: center;
+  overflow-wrap: anywhere;
+}
+
+.custom-data__text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.custom-data__binary {
+  color: var(--c-text-muted);
+  font-style: italic;
+}
+
+.custom-data__actions {
+  display: inline-flex;
+  gap: 6px;
+  align-self: center;
+  justify-self: end;
+}
+
+.custom-data__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  color: var(--c-text-muted);
+  cursor: pointer;
+}
+
+.custom-data__icon-btn:hover:not(:disabled),
+.custom-data__icon-btn:focus-visible:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--c-text);
+  outline: none;
+}
+
+.custom-data__icon-btn--danger {
+  color: #a03a2a;
+}
+
+.custom-data__icon-btn--danger:hover:not(:disabled),
+.custom-data__icon-btn--danger:focus-visible:not(:disabled) {
+  background: rgba(160, 58, 42, 0.08);
+  color: #a03a2a;
+  border-color: #a03a2a;
+}
+
+.custom-data__warning {
+  font-size: 11px;
+  color: #a03a2a;
+  background: rgba(160, 58, 42, 0.08);
+  border-radius: 4px;
+  padding: 4px 8px;
+  /* Warnings break out of the 3-column grid and span the full row
+   * beneath the key + value cells. */
+  grid-column: 1 / -1;
+}
+
+/* While a row is in edit mode the inline form takes more space —
+ * the actions column is unrendered, so let the value cell stretch
+ * across columns 2 + 3. Triggered by a state class on the row. */
+.custom-data__row--editing .custom-data__value {
+  grid-column: 2 / -1;
+}
+
+.custom-data__empty {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  padding: 8px 4px;
+  font-style: italic;
+}
+
+.custom-data__add-row {
+  padding: 6px 0 0 0;
+}
+
+.custom-data__add-form,
+.custom-data__edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.02);
+  margin-top: 6px;
+  width: 100%;
+}
+
+.custom-data__add-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--c-text-muted);
+}
+
+.custom-data__input,
+.custom-data__textarea {
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-bg);
+  color: var(--c-text);
+  resize: vertical;
+}
+
+.custom-data__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.custom-data__btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  color: var(--c-text);
+  cursor: pointer;
+}
+
+.custom-data__btn:hover:not(:disabled),
+.custom-data__btn:focus-visible:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  outline: none;
+}
+
+.custom-data__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.custom-data__btn--primary {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+
+.custom-data__btn--danger {
+  border-color: #a03a2a;
+  color: #a03a2a;
+}
+
+.custom-data__btn--danger:hover:not(:disabled) {
+  background: rgba(160, 58, 42, 0.08);
+}
+
+.custom-data__error {
+  font-size: 11px;
+  color: #a03a2a;
+}
+
+/* Phase 8 round 2 — Reader mode banner. Thin amber strip rendered
+ * directly under the top toolbar when Læsetilstand is on. Subtle
+ * but unmissable: gives the user a clear "this is why nothing
+ * responds to clicks" cue without blocking the view. */
+.reader-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: rgba(180, 130, 30, 0.1);
+  border-bottom: 1px solid rgba(180, 130, 30, 0.45);
+  color: var(--c-text);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.reader-mode-banner__icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.reader-mode-banner__text {
+  flex: 1;
+}
+
+/* SPLIT-Merge (#248) — empty-spec placeholder action.
+ *
+ * Visible only inside SpecView when the section tree is empty AND
+ * the parent passes `onFillFromStandard`. Styled as a green text
+ * link to match the app's accent. Generous vertical breathing room
+ * gives the empty card a less "afskåret" feel without forcing the
+ * outer surface to grow.
+ */
+.spec-view__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding-bottom: 20px;
+}
+
+.spec-view__empty-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: var(--c-accent);
+  text-decoration: underline;
+  font-size: inherit;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+.spec-view__empty-link:hover {
+  color: var(--c-accent-strong);
+}
+
+.spec-view__empty-link:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Stretch the spec-view container so the white surface in the
+ * main pane goes all the way down to the bottom of the viewport
+ * — fixes the "afskåret" look on empty arbejdsbeskrivelser. */
+.spec-view {
+  min-height: calc(100vh - 220px);
+}
+
+/* SPLIT-Merge modal — small list of source work areas. */
+.fill-modal__wa-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fill-modal__wa-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * About panel
+ *
+ * Uses the modal shell and the shared .modal__button / .modal__muted rules;
+ * what is here is only what the panel adds. The links in particular need
+ * their own rule: a bare <a> renders in the browser's default blue and
+ * purple, which is the one thing in the app that looks like it came from
+ * somewhere else.
+ * ------------------------------------------------------------------------ */
+
+.about__version {
+  margin: 0 0 4px 0;
+}
+
+.about__maker {
+  margin: 0 0 16px 0;
+  font-size: 12px;
+}
+
+.about__section {
+  margin: 0 0 16px 0;
+}
+
+/* Matches the weight and muting of section labels elsewhere in the app
+ * (see .modal__field-label) rather than inventing a third heading style. */
+.about__heading {
+  margin: 0 0 6px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+/* Fixed height so the panel does not jump as the update state moves from
+ * "checking" to a sentence and back. */
+.about__status {
+  margin: 0 0 8px 0;
+  min-height: 1.4em;
+}
+
+.about__buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.about__links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.about__link {
+  color: var(--c-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--c-border-strong);
+}
+
+.about__link:hover,
+.about__link:focus-visible {
+  color: var(--c-accent);
+  text-decoration-color: var(--c-accent);
+}
+
+/* How updating works. Sits above the status line and does not change,
+ * so it reads as an explanation rather than as a result. */
+.about__hint {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+}

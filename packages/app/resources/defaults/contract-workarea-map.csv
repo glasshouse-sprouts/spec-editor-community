@@ -1,0 +1,120 @@
+# Mapping: Molio work-area code -> contract code (used at import to pre-select the landing contract).
+# Built 2026-06-19 from Molio's catalogue (bips/Molio S-codes, 194 entries). The matcher compares
+# column 1 to the imported work area's code, then lands it in the contract in column 2.
+# Lines starting with # are ignored. Some assignments are judgement calls (steel, glass, cooling,
+# IT/security as CTS vs EL, the S0xx "faelles" block) - edit freely to match your own conventions.
+molio_workarea_code,contract_code,note
+# --- E00 Generelle beskrivelser ---
+S001.01,E00,Struktur
+S010.01,E00,Byggesag
+S011.01,E00,Arbejdsmiljoe / PSS
+S012.01,E00,Koordinering
+S013.01,E00,IKT beskrivelse
+# --- E01 Byggeplads ---
+S101.01,E01,Byggeplads
+S110.01,E01,Gennemfoering og reetablering [judgement: byggeplads vs generelt]
+# --- E09 Sanering og nedrivning ---
+S120.01,E09,Nedrivning og miljoesanering
+# --- E10 Terraen ---
+S201.01,E10,Jord generelt
+S201.02,E10,Jord ledninger
+# --- E11 Belaegning ---
+S203.01,E11,Befaestelse
+# --- E18 Anlaeg ---
+S204.01,E18,Beplantning
+# --- E12 Konstruktioner ---
+S202.01,E12,Paelekonstruktion rammet
+S210.01,E12,Betonkonstruktion pladsstoebt
+S210.02,E12,Betonkonstruktion betonelement leverance
+S210.03,E12,Betonkonstruktion betonelement montage
+# --- E05 Smedearbejde (staal) --- [judgement: kan ogsaa hoere under E12]
+S211.01,E05,Staalkonstruktion generelt
+# --- E03 Toemrerarbejde (inkl. lukning: vinduer, doere, glas) ---
+S212.01,E03,Traekonstruktion generelt
+S215.01,E03,Skeletkonstruktion let
+S230.01,E03,Loft monteret
+S216.01,E03,Glaskonstruktion glasfacade og tag [judgement: glasfacade]
+S240.01,E03,Vindue doer og port leverance
+S240.02,E03,Vindue doer og port montage
+S240.03,E03,Vindue doer og port renovering
+S252.01,E03,Glas generelt
+# --- E02 Murerarbejde ---
+S213.01,E02,Murvaerkskonstruktion murvaerk
+S225.01,E02,Beklaedning paamuret
+# --- E04 Tagdaekning ---
+S220.01,E04,Tagkomplettering
+S221.01,E04,Tagdaekning pap
+S221.02,E04,Tagdaekning overlaegsplade
+S221.03,E04,Tagdaekning folie
+# --- E06 Gulvarbejde ---
+S235.01,E06,Undergulv stoebt
+S235.02,E06,Undergulv opbygget
+S236.01,E06,Gulvbelaegning trae og laminat
+S236.02,E06,Gulvbelaegning tekstil og elastisk
+S236.03,E06,Gulvbelaegning flydende
+# --- E08 Inventararbejde ---
+S245.01,E08,Fast inventar
+# --- E07 Malerarbejde ---
+S250.01,E07,Maling
+S251.01,E07,Fuge
+# --- E13 VVS arbejde --- [koeling S330 er judgement: VVS vs ventilation]
+S302.02,E13,BR18 funktionsafproevning varme
+S304.01,E13,Teknisk isolering VVS
+S310.01,E13,Afloeb i jord
+S320.01,E13,VVS brugsvandsinstallation
+S320.02,E13,VVS varmeanlaeg
+S320.03,E13,VVS anlaeg for afkoelet vand
+S320.04,E13,VVS afloeb i bygning
+S322.01,E13,VVS varmeanlaeg
+S325.01,E13,Sprinkling
+S330.01,E13,Koeling direkte ekspansion
+S330.02,E13,Koeling vandbaaren
+# --- E14 Ventilationsarbejde ---
+S302.05,E14,BR18 funktionsafproevning ventilation
+S304.02,E14,Teknisk isolering ventilation
+S340.01,E14,Ventilation aggregat og ventilator
+S340.02,E14,Ventilation kanal og komponent
+S340.03,E14,Ventilation armatur
+# --- E15 El arbejde ---
+S303.01,E15,Eltracing
+S303.02,E15,Maaler
+S303.05,E15,El motorer og frekvensomformere
+S350.01,E15,El ledningssystemer
+S350.02,E15,El apparater og monteringsmateriel
+S350.03,E15,El foeringsvej i terraen
+S350.04,E15,El belysningsanlaeg i terraen
+S350.05,E15,El kraftinstallation i terraen
+S350.06,E15,El stik og hovedledning
+S350.07,E15,El hovedfoeringsveje
+S350.08,E15,El supplerende foeringsveje
+S350.09,E15,El kraftinstallation
+S350.10,E15,El udstyr
+S350.11,E15,El belysningsanlaeg
+S350.12,E15,El sikkerhedsbelysning
+S350.13,E15,El potentialudligning
+S351.01,E15,El ledningssystemer for maskininstallationer og signalkabling
+S352.01,E15,El tavle hoved og fordelingstavle
+S352.02,E15,El tavle maskininstallation kraft og styring
+# --- E16 CTS arbejde (automatik, IT, sikring/svagstroem) --- [IT + sikring er judgement: CTS vs EL]
+S301.01,E16,Udveksling af data og signaler samt afproevning
+S301.02,E16,CE maerkning samordnet
+S301.03,E16,Systemhardware software og netvaerk
+S360.01,E16,Bygningsautomatik CTS
+S360.02,E16,Bygningsautomatik automatikkomponent
+S360.03,E16,Bygningsautomatik IBI klima
+S360.04,E16,Bygningsautomatik afproevning indregulering og test
+S360.05,E16,Bygningsautomatik hovedcentral
+S361.01,E16,IT kabling fysiske foeringsveje
+S361.02,E16,IT kabling fiberkabling
+S361.03,E16,IT kabling balanceret kobberkabling
+S361.04,E16,IT kabling rack og tilbehoer
+S362.01,E16,Sikring ABA brandalarm
+S362.02,E16,Sikring AVA varsling
+S362.03,E16,Sikring ARS rumslukning
+S362.04,E16,Sikring ABDL branddoerlukning
+S362.05,E16,Sikring ABV brandventilation
+S362.06,E16,Sikring AGA gasalarm
+S363.01,E16,Sikring TVO tv-overvaagning
+S364.01,E16,Sikring ADK adgangskontrol
+S364.02,E16,Sikring AIA indbrudsalarm
+S365.01,E16,Sikring mekanisk sikring

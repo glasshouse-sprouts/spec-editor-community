@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements applied to every file inside the app bundle EXCEPT the
+  top-level app itself (that one gets entitlements.mac.plist, next to
+  this file). electron-builder picks this file up automatically by name
+  ("entitlements.mac.inherit.plist" in the buildResources directory,
+  `build/`) - no electron-builder.yml field needed.
+
+  Why this file matters here specifically: the MCP server is shipped as
+  a standalone Node executable plus a native `better-sqlite3.node`
+  module under extraResources (Contents/Resources/molio-mcp-server/,
+  see electron-builder.yml). electron-builder's deep-sign step walks the
+  WHOLE app bundle, so it reaches and re-signs that Node executable and
+  the .node file too, with THESE entitlements (not the main plist).
+  Without allow-jit here, the bundled Node binary - which runs its own
+  V8, same as Electron's main process - would crash on launch the same
+  way the app would without it in entitlements.mac.plist.
+
+  Same "add only what's proven necessary" rule as entitlements.mac.plist.
+  If notarization or a first run reports a library-validation failure
+  for better_sqlite3.node specifically, the likely fix is adding
+  com.apple.security.cs.disable-library-validation here - see the
+  "Fejlbeskeder mødt" section in _coordination/MACOS_SIGNING.md before
+  adding it speculatively; it has not been needed yet in testing.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+  </dict>
+</plist>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the TOP-LEVEL app bundle (Molio 2.0 Editor.app itself),
+  applied by electron-builder during macOS code signing because this file
+  is named exactly "entitlements.mac.plist" and lives in the configured
+  buildResources directory (`build/`, see electron-builder.yml).
+
+  Companion file "entitlements.mac.inherit.plist" in this same folder is
+  applied to every OTHER file inside the bundle (helper binaries, the
+  MCP server's Node executable, native .node modules) - see that file's
+  own comments for why it needs (almost) the same entitlements.
+
+  Kept intentionally minimal: each entry below is a real permission
+  granted to the app, so only what Electron itself requires under the
+  hardened runtime is listed. Do not add more without a concrete reason
+  written down here, and write the reason.
+
+  Background: docs/GitHub-issue references electron-builder itself uses
+  for these two exact entries in its own built-in default template
+  (node_modules/app-builder-lib/templates/entitlements.mac.plist) - this
+  file makes that default explicit and reviewable instead of implicit.
+-->
+<plist version="1.0">
+  <dict>
+    <!--
+      Electron's main process runs V8 (the Chromium JS engine), and V8
+      JIT-compiles JavaScript to native code at runtime. macOS's hardened
+      runtime blocks that by default (it normally only allows pages that
+      were mapped from a signed file on disk to be executable). Without
+      this entitlement the app crashes on startup.
+      Ref: https://www.electronjs.org/docs/latest/tutorial/code-signing
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!--
+      Same root cause as allow-jit: V8 (and Node's own V8 instance in the
+      bundled MCP server binary) allocates executable memory pages that
+      were not read from a signed file - needed for its JIT and for
+      WebAssembly. Without this, JS execution fails at runtime even
+      though the app itself launches.
+      Ref: https://www.electronjs.org/docs/latest/tutorial/code-signing
+    -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+  </dict>
+</plist>

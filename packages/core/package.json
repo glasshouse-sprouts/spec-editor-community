@@ -1,0 +1,27 @@
+{
+  "name": "@molio2-editor/core",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Core file-format logic for Molio 2.0 .moliospec files. No UI, no Electron.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.7.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.8"
+  }
+}

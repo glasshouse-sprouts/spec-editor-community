@@ -1,0 +1,214 @@
+# electron-builder configuration for Spec Editor.
+#
+# Cross-platform: produces a macOS .dmg (arm64 only — see the comment
+# on mac.target below for why) and a Windows .exe NSIS installer. Linux
+# targets are intentionally omitted; only mac + win for v1.
+#
+# macOS code signing + notarization: wired up 2026-08 (Task 8). No
+# `mac.identity` is set here on purpose — electron-builder auto-
+# discovers a "Developer ID Application" certificate in the signing
+# Mac's login keychain. Notarization activates automatically when the
+# App Store Connect API key env vars are present at build time
+# (APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER — see
+# _coordination/MACOS_SIGNING.md for how those are stored and where
+# they come from). No cert/key material lives in this repo or this
+# file. If those env vars are absent, electron-builder silently skips
+# signing and notarizing — a build with no error is not proof of a
+# signed build; verify with `npm run verify:mac-signing` after
+# packaging (packages/app/scripts/verify-mac-signing.cjs).
+#
+# Windows signing is NOT wired here (`no win.certificateFile`) — the
+# Windows certificate is on a physical hardware token as of 2026-08,
+# which cannot be plugged into GitHub Actions the way the macOS
+# Developer ID key material can. Separate follow-up, not part of Task 8.
+#
+appId: com.3dbyggeri.spec-editor
+productName: Spec Editor
+
+# Where updates come from - Community edition.
+#
+# Written here by scripts/strip-community-files.sh, replacing the
+# Glasshouse block, which points at the 3dbyggeri release bucket. A
+# Community build must never be able to update itself onto
+# Spec Editor, and this is where that is decided.
+#
+# GitHub Releases rather than our own bucket, on purpose: an app
+# that fetched updates from a private bucket would phone home to
+# us every few hours, and nobody outside 3dbyggeri could see what
+# was in it. On GitHub the binaries sit next to the source they
+# were built from, where anyone can check one against the other.
+# That verifiability is the whole reason for shipping a binary.
+#
+# owner/repo BELOW IS PROVISIONAL and must be confirmed against
+# the real repository before the first release. Task 11 moves the
+# repo to the glasshouse-sprouts organisation and makes it
+# public; Task 124 publishes. A publish block that names a repo
+# which does not exist fails silently - electron-updater gets a
+# 404 and reports "no update". And because these values are
+# baked into app-update.yml inside each shipped binary, a rename
+# afterwards cannot be repaired for versions already released.
+#
+# Build this repository yourself and you get this block too, so
+# your own build will update itself to our official release and
+# overwrite your changes. That is a deliberate trade-off - see
+# README.md and CONTRIBUTING.md. Delete the four lines below in
+# your own copy to opt out.
+publish:
+  provider: github
+  owner: glasshouse-sprouts
+  repo: spec-editor-community
+# END publish
+
+# Unambiguous installer filenames: "<product>-<version>-<arch>.<ext>". The
+# product name already differs per edition, so this keeps Glasshouse and
+# Community builds (and successive versions) from ever being confused on disk.
+artifactName: ${productName}-${version}-${arch}.${ext}
+
+# Pin the Electron runtime version. We're in an npm workspace so
+# electron-builder can't auto-detect the installed version from the
+# package's own node_modules; an explicit pin removes that guess
+# and keeps the bundled runtime aligned with what we develop against.
+electronVersion: 41.7.2
+
+# Override package.json at packaging time. The workspace-only
+# dependencies (`@molio2-editor/core`) and renderer-time deps that
+# vite already bundles into the renderer chunk are removed; only the
+# native module(s) that genuinely need to live on disk inside the
+# installed app stay listed. This stops electron-builder from trying
+# to follow the workspace symlink to `packages/core/` (which sits
+# outside the app's directory and triggers a "must be under …"
+# error).
+extraMetadata:
+  dependencies:
+    better-sqlite3: ^12.10.0
+
+# Inclusive-only file patterns. electron-builder defaults to scanning
+# the whole package directory and applying excludes; that approach
+# breaks here because the workspace symlink at
+# `node_modules/@molio2-editor/core/` resolves outside the package
+# and the asar packager refuses paths it can't relativise. The
+# explicit list below tells electron-builder exactly what to include
+# — `out/` (the bundled renderer + main), `package.json`, and the
+# native modules better-sqlite3 needs. Nothing else from
+# node_modules is touched.
+files:
+  - "out/**/*"
+  - "package.json"
+  - "node_modules/better-sqlite3/**/*"
+  - "node_modules/bindings/**/*"
+  - "node_modules/file-uri-to-path/**/*"
+
+# `better-sqlite3` is a native module: the .node binary can't be
+# served from inside the asar archive — it has to land on disk so
+# Node's loader can dlopen it. asarUnpack copies the whole module
+# directory into `app.asar.unpacked/` next to the asar.
+asarUnpack:
+  - "node_modules/better-sqlite3/**/*"
+  - "node_modules/bindings/**/*"
+
+# Bundle the empty-project template alongside the app.
+# Electron-builder copies anything listed here into the app's
+# Resources/ folder; main reads it via `process.resourcesPath`.
+extraResources:
+  - from: resources/blank.moliospec
+    to: blank.moliospec
+  # #250 — default CSVs (contracts + work-area->contract mapping).
+  # Copied to userData/defaults on first run; the user edits the copy.
+  - from: resources/defaults
+    to: defaults
+
+# The icon files generated by build/generate-icons.py.
+directories:
+  buildResources: build
+
+# File association: double-clicking a .moliospec opens it in the
+# Editor. macOS uses the `mac.fileAssociations` block too — we list
+# both so each platform's installer registers it natively.
+fileAssociations:
+  - ext: moliospec
+    name: Molio 2.0 specification
+    description: Molio 2.0 specification file
+    role: Editor
+    icon: build/icon
+
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      # arm64 only — deliberate decision (Tore, 2026-08-12, Task 8),
+      # not just a temporary gap. The universal target requires the MCP
+      # server's `better-sqlite3.node` to be properly arch-specific in
+      # both builds; prepare-deploy.cjs currently installs only one
+      # host-arch copy, so the universal merger refuses. Consequence:
+      # an Intel Mac cannot run the published app. Revisit only if
+      # Intel-Mac support becomes a real requirement — would need
+      # prepare-deploy.cjs to fetch both prebuilds (or two single-arch
+      # DMG targets instead of one universal one).
+      arch:
+        - arm64
+    # The .zip is NOT an alternative download - it exists solely so
+    # macOS can update itself. Squirrel.Mac, which electron-updater
+    # drives on macOS, can only install from a zip; without this target
+    # `latest-mac.yml` is not written at all and the updater fails at
+    # startup with nothing useful to say. Nobody is ever offered this
+    # file: the download page links the .dmg, and the updater fetches
+    # the .zip in the background.
+    #
+    # It also keeps stapling out of the update path. We staple the .dmg
+    # by hand after notarizing (electron-builder staples the .app and
+    # leaves the .dmg, which is the file people download). Stapling
+    # rewrites the file, so its checksum stops matching whatever was
+    # recorded at build time - harmless here, because the updater never
+    # touches the .dmg. The .zip is built from the already-stapled .app
+    # and is not modified afterwards.
+    - target: zip
+      arch:
+        - arm64
+  icon: build/icon.icns
+  # Required for notarization (Apple rejects unhardened apps outright)
+  # and for JIT/unsigned-executable-memory to keep working once signed
+  # — see build/entitlements.mac.plist for what that actually grants.
+  hardenedRuntime: true
+  # Entitlements for the top-level app bundle. electron-builder would
+  # auto-discover these by filename alone (they live in `buildResources`
+  # = build/, see `directories` below) — named explicitly here so the
+  # dependency is visible in this file, not just by convention.
+  entitlements: build/entitlements.mac.plist
+  # Entitlements applied to every OTHER signed file in the bundle
+  # (helper binaries, the MCP server's Node executable and its native
+  # .node module under extraResources) — see that file's own comments.
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  # Disable Gatekeeper "translocation" surprises by clearing the
+  # extended attributes set during signing.
+  gatekeeperAssess: false
+
+dmg:
+  title: ${productName}
+  # Standard "drag to Applications" two-pane layout.
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  shortcutName: Spec Editor
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

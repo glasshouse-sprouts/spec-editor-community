@@ -1,0 +1,18 @@
+# Build output and dependencies
+**/dist/**
+**/out/**
+**/node_modules/**
+packages/mcp-server/deploy/**
+**/coverage/**
+
+# Generated / cached files
+**/*.config.*.mjs
+package-lock.json
+**/_probe_*.mjs
+
+# Third-party reference material and sample data — never reformat.
+0000 Background info/
+0900 Examples/
+
+# Docs are hand-formatted (Danish) — opt them in later if we want.
+**/*.md
