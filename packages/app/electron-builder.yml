@@ -1,4 +1,4 @@
-# electron-builder configuration for Spec Editor.
+# electron-builder configuration for Spec Editor Community.
 #
 # Cross-platform: produces a macOS .dmg (arm64 only — see the comment
 # on mac.target below for why) and a Windows .exe NSIS installer. Linux
@@ -23,14 +23,14 @@
 # Developer ID key material can. Separate follow-up, not part of Task 8.
 #
 appId: com.3dbyggeri.spec-editor
-productName: Spec Editor
+productName: Spec Editor Community
 
 # Where updates come from - Community edition.
 #
 # Written here by scripts/strip-community-files.sh, replacing the
 # Glasshouse block, which points at the 3dbyggeri release bucket. A
-# Community build must never be able to update itself onto
-# Spec Editor, and this is where that is decided.
+# Community build must never be able to update itself onto the
+# other edition, and this is where that is decided.
 #
 # GitHub Releases rather than our own bucket, on purpose: an app
 # that fetched updates from a private bucket would phone home to
@@ -39,14 +39,17 @@ productName: Spec Editor
 # were built from, where anyone can check one against the other.
 # That verifiability is the whole reason for shipping a binary.
 #
-# owner/repo BELOW IS PROVISIONAL and must be confirmed against
-# the real repository before the first release. Task 11 moves the
-# repo to the glasshouse-sprouts organisation and makes it
-# public; Task 124 publishes. A publish block that names a repo
-# which does not exist fails silently - electron-updater gets a
-# 404 and reports "no update". And because these values are
-# baked into app-update.yml inside each shipped binary, a rename
-# afterwards cannot be repaired for versions already released.
+# owner/repo below is CONFIRMED: the repository exists at
+# github.com/glasshouse-sprouts/spec-editor-community, public
+# since 2026-09-15, and the address was checked against the
+# git remote of the local clone on 2026-09-16.
+#
+# Do not edit these two values casually. A publish block that
+# names a repo which does not exist fails silently -
+# electron-updater gets a 404 and reports "no update". And
+# because these values are baked into app-update.yml inside each
+# shipped binary, a rename afterwards cannot be repaired for the
+# versions that are already downloaded.
 #
 # Build this repository yourself and you get this block too, so
 # your own build will update itself to our official release and
@@ -59,10 +62,20 @@ publish:
   repo: spec-editor-community
 # END publish
 
-# Unambiguous installer filenames: "<product>-<version>-<arch>.<ext>". The
-# product name already differs per edition, so this keeps Glasshouse and
-# Community builds (and successive versions) from ever being confused on disk.
-artifactName: ${productName}-${version}-${arch}.${ext}
+# Installer filenames - Community edition.
+#
+# Written here by scripts/strip-community-files.sh, replacing the
+# shared line, which derives the filename from the product name.
+# This edition's product name contains spaces, and a space in an
+# artifact filename becomes %20 in every URL on GitHub Releases and
+# in the update feed - permanently, because the feed points at these
+# exact filenames and a released file cannot be renamed.
+#
+# A fixed string rather than ${productName}, on purpose: the display
+# name can change again without the filenames moving, and no space
+# can get in by accident.
+artifactName: spec-editor-community-${version}-${arch}.${ext}
+# END artifactName
 
 # Pin the Electron runtime version. We're in an npm workspace so
 # electron-builder can't auto-detect the installed version from the
@@ -209,6 +222,6 @@ nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   installerHeaderIcon: build/icon.ico
-  shortcutName: Spec Editor
+  shortcutName: Spec Editor Community
   createDesktopShortcut: true
   createStartMenuShortcut: true

@@ -180,7 +180,7 @@ describe("buildSpecPdf", () => {
     });
     expect(doc.pageSize).toBe("A4");
     expect(doc.info?.title).toBe("Work title");
-    expect(doc.info?.creator).toBe("Spec Editor");
+    expect(doc.info?.creator).toBe("Spec Editor Community");
   });
 
   // ---- 7.2 additions -----------------------------------------------

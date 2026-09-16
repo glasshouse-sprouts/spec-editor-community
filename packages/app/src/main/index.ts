@@ -42,9 +42,9 @@ import {
 // builds the macOS menu bar also reads `productName` from
 // package.json; in dev the running bundle is still Electron.app so
 // the very top-left label may remain "Electron" — but every sub-item
-// ("Quit Spec Editor", "Hide Spec Editor", etc.) picks the
+// ("Quit Spec Editor Community", "Hide Spec Editor Community", etc.) picks the
 // new name up.
-app.setName("Spec Editor");
+app.setName("Spec Editor Community");
 
 // Directory Electron stores app data in (userData) — session
 // lockfile, license cache, preferences, saved Glasshouse session.
@@ -143,7 +143,7 @@ function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1100,
     height: 720,
-    title: "Spec Editor",
+    title: "Spec Editor Community",
     // Task 98 — the colour Electron paints the empty window with
     // until the renderer has drawn. Without it the window starts out
     // in the OS background colour, which is a black flash when macOS
@@ -341,7 +341,7 @@ function createWindow(): BrowserWindow {
 // Without an explicit menu, Electron builds a default one whose
 // every label says "Electron" — Quit Electron, About Electron, etc.
 // We provide our own template here so all those labels become
-// "Spec Editor" via the `{appName}` substitution Electron does
+// "Spec Editor Community" via the `{appName}` substitution Electron does
 // on role-based items. Note macOS-only quirk: the very top-left app
 // label is decided by the running bundle's CFBundleName, which in
 // dev is still Electron.app. Packaged builds (via electron-builder

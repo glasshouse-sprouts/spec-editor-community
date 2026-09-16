@@ -274,7 +274,7 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
     },
     info: {
       title: fullTitle,
-      creator: "Spec Editor",
+      creator: "Spec Editor Community",
     },
   };
 }

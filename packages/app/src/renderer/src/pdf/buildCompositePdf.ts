@@ -245,7 +245,7 @@ export function buildCompositePdf(
     styles: specPdfStyles,
     info: {
       title: cover.title,
-      creator: "Spec Editor",
+      creator: "Spec Editor Community",
     },
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "@molio2-editor/app",
-  "productName": "Spec Editor",
+  "productName": "Spec Editor Community",
   "version": "1.0.1",
   "private": true,
   "description": "Electron desktop app for viewing and editing Molio 2.0 files.",
@@ -25,7 +25,8 @@
     "package:mac": "npm run build && node scripts/run-electron-builder.cjs --mac",
     "package:win": "npm run build && node scripts/run-electron-builder.cjs --win",
     "package:linux": "npm run build && node scripts/run-electron-builder.cjs --linux",
-    "package:dir": "npm run build && node scripts/run-electron-builder.cjs --dir"
+    "package:dir": "npm run build && node scripts/run-electron-builder.cjs --dir",
+    "verify:mac-signing": "node scripts/verify-mac-signing.cjs"
   },
   "dependencies": {
     "@expo-google-fonts/open-sans": "^0.4.2",

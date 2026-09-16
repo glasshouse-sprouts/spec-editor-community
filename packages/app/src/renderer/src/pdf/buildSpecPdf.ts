@@ -409,7 +409,7 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
     styles: specPdfStyles,
     info: {
       title,
-      creator: "Spec Editor",
+      creator: "Spec Editor Community",
     },
   };
 }

@@ -175,11 +175,11 @@ export function useFileState({
   useEffect(() => {
     if (typeof document === "undefined") return;
     if (state.kind !== "loaded") {
-      document.title = "Spec Editor";
+      document.title = "Spec Editor Community";
       return;
     }
     const name = basename(state.data.path);
-    document.title = `${dirty ? "● " : ""}${name} — Spec Editor`;
+    document.title = `${dirty ? "● " : ""}${name} — Spec Editor Community`;
   }, [state, dirty]);
 
   // Dismiss save errors after a short delay.

@@ -196,7 +196,7 @@ export function buildVersionSummaryPdf(
     },
     info: {
       title: strings.documentTitle,
-      creator: "Spec Editor",
+      creator: "Spec Editor Community",
     },
   };
 }
