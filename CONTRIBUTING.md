@@ -33,11 +33,13 @@ Before opening a PR, please make sure:
 ### One thing to know before you build an installer
 
 `npm run dev` is unaffected by this, but an installer you build from this
-repository keeps the `publish` configuration that points at the GitHub releases
-we will publish. It will therefore update itself to the next official release,
-replacing whatever you built - which, if you are building often while working
-on a change, is not what you want. No release has been published yet, so this
-has no effect today; it will the moment the first one is out.
+repository keeps the `publish` configuration that points at our GitHub
+releases. On Windows it will update itself to the next official release,
+replacing whatever you built. On macOS it cannot replace your build, because
+macOS refuses an update that does not satisfy the installed app's own code
+requirement - but it keeps downloading the release and reporting the failure in
+the About panel. If you are building often while working on a change, neither
+is what you want.
 
 Delete the `publish` block from `packages/app/electron-builder.yml` in your
 working copy. Leave it out of any patch you send us: the block is what makes

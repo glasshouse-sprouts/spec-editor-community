@@ -65,16 +65,23 @@ npm run typecheck                    # type-check all packages
 Building installers is handled by electron-builder; see the `package` scripts in
 `packages/app/package.json`.
 
-### Builds you make yourself will update themselves
+### What happens to an installer you build yourself
 
-Official releases will be published on GitHub Releases, and the app updates
-itself from there. Note that no release has been published yet - for now, a
-build you make yourself is the only way to run this edition.
+Official releases are published on GitHub Releases, and the app updates itself
+from there. An installer you build from this repository carries the same
+`publish` configuration, so it looks for those same releases. What happens next
+differs by platform, and neither outcome is what you want while you are working
+on a change:
 
-Once the first release is out, this matters to you: an installer you build from
-this repository carries the same `publish` configuration, so it will behave the
-same way. When we publish a newer version, your build downloads it and installs
-it over your own changes on the next restart.
+- **Windows: your build is replaced.** The next official release downloads and
+  installs itself over whatever you built, on the next restart. Our Windows
+  installer is unsigned, so there is no publisher for the updater to check
+  before it swaps your build out.
+- **macOS: your build is not replaced, but it does not leave you alone
+  either.** It downloads the official release, macOS refuses to install it
+  because a replacement has to satisfy the installed app's own code
+  requirement, and the About panel shows that failure. It repeats on every
+  check.
 
 To opt out, delete the `publish` block from
 `packages/app/electron-builder.yml` in your copy. The app then reports that it
