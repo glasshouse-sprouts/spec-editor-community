@@ -17,10 +17,17 @@
 # signed build; verify with `npm run verify:mac-signing` after
 # packaging (packages/app/scripts/verify-mac-signing.cjs).
 #
-# Windows signing is NOT wired here (`no win.certificateFile`) — the
-# Windows certificate is on a physical hardware token as of 2026-08,
-# which cannot be plugged into GitHub Actions the way the macOS
-# Developer ID key material can. Separate follow-up, not part of Task 8.
+# Windows signing does NOT happen in this build, on purpose (Task 153,
+# 2026-09). The certificate is an EV certificate held by a separate
+# signing server; its PIN is handled on that server. The installer is
+# uploaded to the server by hand in a browser and the signed file is
+# downloaded again a few minutes later - on another machine than the one
+# that builds. So there is no `win.certificateFile` and no
+# `win.signtoolOptions.sign` here: electron-builder hands over an UNSIGNED
+# .exe, and a later step rewrites it. Because signing changes the file,
+# latest.yml must then be refreshed (`npm run refresh-win-feed`), and the
+# result checked (`npm run verify:win-signing`). Order and reasons:
+# docs/RELEASE_PROCEDURE.md, step 6b.
 #
 appId: com.3dbyggeri.spec-editor
 productName: Spec Editor Community
@@ -214,6 +221,41 @@ win:
       arch:
         - x64
   icon: build/icon.ico
+  # `signtoolOptions.publisherName` is left out ON PURPOSE (Task 153,
+  # decided 2026-09-23). Do not "add the missing field" without reading
+  # this.
+  #
+  # Whatever is set here is baked into THIS build's app-update.yml and
+  # decides whether the NEXT update is accepted: NsisUpdater compares it
+  # with the signature on the downloaded .exe and refuses on mismatch
+  # (ERR_UPDATER_INVALID_SIGNATURE). A wrong string does not fail here -
+  # it fails one version later, on every user's machine. Without the field
+  # NsisUpdater skips the check entirely (the default for
+  # verifyUpdateCodeSignature is true, but there is nothing to compare
+  # with - leave that option alone too, false would only hide this).
+  #
+  # Before setting it (planned for 1.0.4):
+  #   1. Read the certificate's subject from the first signed .exe on
+  #      Windows: (Get-AuthenticodeSignature -LiteralPath '<exe>').SignerCertificate.Subject
+  #      It is recorded verbatim on tracker card 153.
+  #   2. Use the FULL subject DN, not only the CN - electron-updater's
+  #      windowsExecutableCodeSignatureVerifier.js warns against CN-only.
+  #   3. Community builds share this file and are NOT signed with our
+  #      certificate. The field must not reach a Community build, or its
+  #      updates are refused - handle it in scripts/strip-community-files.sh
+  #      in the same change.
+  #
+  # `timeStampServer` is not set either: it is only used when
+  # electron-builder signs, which it does not. Timestamping is the signing
+  # server's job; `npm run verify:win-signing` checks for it on Windows.
+  #
+  # Until publisherName is set, signing gives a visible publisher and a
+  # SmartScreen reputation that builds up over downloads - but NO
+  # protection against somebody swapping the .exe in the bucket. That
+  # protection only starts with the update FROM the first build that has
+  # publisherName. (An EV certificate no longer gives SmartScreen
+  # reputation from day one - Microsoft stopped that in 2024. Measure the
+  # warning on a clean Windows machine rather than promise it is gone.)
 
 nsis:
   oneClick: false

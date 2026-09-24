@@ -248,10 +248,7 @@ describe("buildSpecPdf", () => {
   });
 
   it("omits the TOC node when includeToc is false", () => {
-    const sections: SectionData[] = [
-      s(1, null, 1, "A"),
-      s(2, null, 2, "B"),
-    ];
+    const sections: SectionData[] = [s(1, null, 1, "A"), s(2, null, 2, "B")];
     const doc = buildSpecPdf({
       ...defaultArgs(),
       includeToc: false,
@@ -824,3 +821,52 @@ function collectAllText(node: unknown): string[] {
   visit(node);
   return out;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Task 173 - a blank page 1 reserved for a custom cover              */
+/* ------------------------------------------------------------------ */
+
+describe("buildSpecPdf - reserveCoverPage (Task 173)", () => {
+  type Chrome = (p: number, pc: number) => unknown;
+
+  it("starts with a blank page and treats page 1 as the cover in header and footer", () => {
+    const doc = buildSpecPdf({
+      ...defaultArgs(),
+      projectName: "My project",
+      reserveCoverPage: true,
+    });
+    const content = doc.content as Content[];
+    expect(content[0]).toEqual({ text: "", pageBreak: "after" });
+    const header = doc.header as Chrome;
+    const footer = doc.footer as Chrome;
+    expect((header(1, 5) as { text?: string }).text).toBe("");
+    expect((footer(1, 5) as { text?: string }).text).toBe("");
+    // pdfmake counts the reserved page, so page 2 is numbered 2 - no offset.
+    expect(collectAllText(header(2, 5))).toContain("2/5");
+    expect(collectAllText(footer(2, 5))).toContain("Page 2 of 5");
+  });
+
+  it("is off by default - page 1 is body and carries the header", () => {
+    const doc = buildSpecPdf({ ...defaultArgs(), projectName: "My project" });
+    const content = doc.content as Content[];
+    expect(content[0]).not.toEqual({ text: "", pageBreak: "after" });
+    expect(collectAllText((doc.header as Chrome)(1, 5))).toContain(
+      "My project",
+    );
+  });
+
+  it("is ignored when the built-in cover is on", () => {
+    const doc = buildSpecPdf({
+      ...defaultArgs(),
+      includeCoverPage: true,
+      reserveCoverPage: true,
+    });
+    const content = doc.content as Content[];
+    expect(content[0]).not.toEqual({ text: "", pageBreak: "after" });
+    const blanks = content.filter(
+      (n) =>
+        JSON.stringify(n) === JSON.stringify({ text: "", pageBreak: "after" }),
+    );
+    expect(blanks).toHaveLength(0);
+  });
+});

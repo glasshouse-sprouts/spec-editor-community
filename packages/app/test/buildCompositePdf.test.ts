@@ -24,6 +24,7 @@ import type { Content } from "pdfmake/interfaces";
 import type { SectionData } from "../src/shared/ipc.js";
 import {
   buildCompositePdf,
+  compositeChapterDestPrefix,
   type CompositePdfChapter,
 } from "../src/renderer/src/pdf/buildCompositePdf.js";
 import { specPdfStyles } from "../src/renderer/src/pdf/buildSpecPdf.js";
@@ -228,5 +229,199 @@ describe("buildCompositePdf", () => {
     const footerFn = doc.footer as (cur: number, count: number) => unknown;
     expect(() => headerFn(2, 5)).not.toThrow();
     expect(() => footerFn(2, 5)).not.toThrow();
+  });
+});
+
+/**
+ * Task 150 - a composite holds a work area AND its BDBs, and their
+ * sections come from two tables whose row ids overlap. Every section
+ * heading carries a pdfmake node id (the TOC jumps to it), and pdfmake
+ * throws "Node id 'section-N' already exists" on a duplicate. These
+ * tests run pdfmake's own preprocessor, which is where that throw
+ * happens, so they fail on the unscoped ids and pass on the fix.
+ */
+describe("buildCompositePdf - node ids across chapters (Task 150)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const DocPreprocessor = require("pdfmake/src/docPreprocessor") as new () => {
+    preprocessDocument(doc: unknown): unknown;
+  };
+
+  /** Every `id` and every `linkToDestination` anywhere in the tree. */
+  function collectRefs(content: unknown): { ids: string[]; links: string[] } {
+    const ids: string[] = [];
+    const links: string[] = [];
+    const visit = (n: unknown): void => {
+      if (Array.isArray(n)) {
+        n.forEach(visit);
+        return;
+      }
+      if (!n || typeof n !== "object") return;
+      const obj = n as Record<string, unknown>;
+      if (typeof obj.id === "string") ids.push(obj.id);
+      if (typeof obj.linkToDestination === "string")
+        links.push(obj.linkToDestination);
+      for (const key of ["stack", "text", "columns", "ul", "ol"]) {
+        if (obj[key] && typeof obj[key] === "object") visit(obj[key]);
+      }
+    };
+    visit(content);
+    return { ids, links };
+  }
+
+  // A work area and a BDB whose section ids overlap (1 and 2 in both).
+  const overlapping: CompositePdfChapter[] = [
+    {
+      kind: "workSpec",
+      title: "S210.01 Work area",
+      sections: [
+        s(1, null, 1, "WA heading", "<p>wa</p>"),
+        s(2, 1, 1, "WA child", "<p>wa child</p>"),
+      ],
+    },
+    {
+      kind: "bdb",
+      title: "BDB with overlapping ids",
+      sections: [
+        s(1, null, 1, "BDB heading", "<p>bdb</p>"),
+        s(2, 1, 1, "BDB child", "<p>bdb child</p>"),
+      ],
+    },
+  ];
+
+  it("pdfmake accepts a composite whose chapters share section ids", () => {
+    const doc = buildCompositePdf({
+      cover: { title: "Whole project", companyName: "Co" },
+      chapters: overlapping,
+      htmlConverter: fakeHtml,
+    });
+    expect(() =>
+      new DocPreprocessor().preprocessDocument(doc.content),
+    ).not.toThrow();
+  });
+
+  it("gives every section heading a unique id, scoped by chapter", () => {
+    const doc = buildCompositePdf({
+      cover: { title: "Whole project", companyName: "Co" },
+      chapters: overlapping,
+      htmlConverter: fakeHtml,
+    });
+    const { ids } = collectRefs(doc.content);
+    expect(ids).toEqual([
+      `${compositeChapterDestPrefix(0)}section-1`,
+      `${compositeChapterDestPrefix(0)}section-2`,
+      `${compositeChapterDestPrefix(1)}section-1`,
+      `${compositeChapterDestPrefix(1)}section-2`,
+    ]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("PFBB note-page links point at an id that exists in the same document", () => {
+    // The note page links to headings by id. If the heading and the
+    // link were prefixed differently the PDF would still build, but the
+    // jumps would point nowhere - so check the link targets resolve.
+    const doc = buildCompositePdf({
+      cover: { title: "Whole project", companyName: "Co" },
+      chapters: [
+        overlapping[0]!,
+        {
+          ...overlapping[1]!,
+          pfbbChildOverlay: {
+            masterName: "Master",
+            supplementBodyBySectionId: { 2: "<p>supplement</p>" },
+          },
+        },
+      ],
+      htmlConverter: fakeHtml,
+    });
+    const { ids, links } = collectRefs(doc.content);
+    expect(links).toEqual([`${compositeChapterDestPrefix(1)}section-2`]);
+    for (const link of links) expect(ids).toContain(link);
+    expect(() =>
+      new DocPreprocessor().preprocessDocument(doc.content),
+    ).not.toThrow();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Task 173 - a blank page 1 reserved for a custom cover              */
+/* ------------------------------------------------------------------ */
+
+/** Every string `text` in a pdfmake node tree (header/footer tables). */
+function collectAllText(node: unknown): string[] {
+  const out: string[] = [];
+  const visit = (n: unknown): void => {
+    if (n === null || n === undefined) return;
+    if (Array.isArray(n)) {
+      for (const x of n) visit(x);
+      return;
+    }
+    if (typeof n !== "object") return;
+    const obj = n as Record<string, unknown>;
+    if (typeof obj.text === "string") out.push(obj.text);
+    else if (Array.isArray(obj.text)) visit(obj.text);
+    if (Array.isArray(obj.columns)) visit(obj.columns);
+    if (obj.table && typeof obj.table === "object") {
+      const t = obj.table as { body?: unknown };
+      if (Array.isArray(t.body)) visit(t.body);
+    }
+    if (Array.isArray(obj.stack)) visit(obj.stack);
+  };
+  visit(node);
+  return out;
+}
+
+describe("buildCompositePdf - reserveCoverPage (Task 173)", () => {
+  type Chrome = (p: number, pc: number) => unknown;
+  const base = () => ({
+    cover: {
+      title: "Hele projektet",
+      projectName: "Test Project",
+      companyName: "Co",
+    },
+    chapters: [
+      chapter(0, "BDB Alpha", [s(1, null, 1, "Heading A1", "<p>body</p>")]),
+    ],
+    htmlConverter: fakeHtml,
+  });
+
+  it("starts with a blank page, then the TOC, and treats page 1 as the cover", () => {
+    const doc = buildCompositePdf({
+      ...base(),
+      includeCoverPage: false,
+      reserveCoverPage: true,
+    });
+    const content = allNodes(doc);
+    expect(content[0]).toEqual({ text: "", pageBreak: "after" });
+    expect(
+      typeof content[1] === "object" &&
+        content[1] !== null &&
+        "toc" in content[1],
+    ).toBe(true);
+    const header = doc.header as Chrome;
+    const footer = doc.footer as Chrome;
+    expect((header(1, 9) as { text?: string }).text).toBe("");
+    expect((footer(1, 9) as { text?: string }).text).toBe("");
+    expect(collectAllText(footer(2, 9))).toContain("Page 2 of 9");
+  });
+
+  it("without TOC the first chapter still starts on page 2, like with the built-in cover", () => {
+    const reserved = allNodes(
+      buildCompositePdf({
+        ...base(),
+        includeCoverPage: false,
+        reserveCoverPage: true,
+        includeToc: false,
+      }),
+    );
+    const builtIn = allNodes(
+      buildCompositePdf({
+        ...base(),
+        includeCoverPage: true,
+        includeToc: false,
+      }),
+    );
+    const firstTitle = (c: Content[]) =>
+      nodesByStyle(c, "chapterTitle")[0] as { pageBreak?: string };
+    expect(firstTitle(reserved).pageBreak).toBe(firstTitle(builtIn).pageBreak);
   });
 });

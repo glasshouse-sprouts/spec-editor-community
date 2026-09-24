@@ -24,6 +24,7 @@ import { buildSectionTree, type SectionNode } from "../sectionTree.js";
 import { danishCollator } from "../sortHelpers.js";
 import {
   makeCover,
+  makeCoverPlaceholder,
   makeFooter,
   makeHeader,
   STANDARD_PAGE_MARGINS_PT,
@@ -209,11 +210,11 @@ export interface BuildSpecPdfArgs {
    */
   includeCoverPage?: boolean;
   /**
-   * Add this many pages to the displayed page numbers. Set to 1 when a
-   * custom cover is prepended after rendering (pdfmake counts only the
-   * body), so numbers match the assembled PDF. Default 0.
+   * Leave page 1 blank for a custom cover that is put on after
+   * rendering (see makeCoverPlaceholder). Ignored when includeCoverPage
+   * is true. Default false.
    */
-  pageNumberOffset?: number;
+  reserveCoverPage?: boolean;
   /**
    * Whether to emit the table-of-contents block. Defaults to true.
    * Exposed so tests (and future callers) can turn it off.
@@ -270,6 +271,16 @@ export interface BuildSpecPdfArgs {
    * without pulling DOMParser at unit-test time.
    */
   stripBody?: (html: string) => string;
+  /**
+   * Prefix for the pdfmake node ids on section headings (the TOC and
+   * the PFBB note page jump to them). pdfmake throws "Node id '...'
+   * already exists" on a duplicate id anywhere in ONE document, and
+   * section ids are only unique within their own table - a work area's
+   * section 12 and a BDB's section 12 are different rows. The composite
+   * builder therefore gives every chapter its own prefix (Task 150).
+   * Default "" keeps a single-spec PDF's ids as they were.
+   */
+  destIdPrefix?: string;
 }
 
 /**
@@ -289,7 +300,7 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
     dateText,
     companyName,
     includeCoverPage = true,
-    pageNumberOffset = 0,
+    reserveCoverPage = false,
     includeToc = true,
     compact = false,
     sections,
@@ -297,6 +308,7 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
     pfbbChildOverlay,
     htmlConverter,
     stripBody,
+    destIdPrefix = "",
   } = args;
 
   // Wrap the htmlConverter once so every call inside the builder
@@ -338,7 +350,10 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
         contractLabel: contractLabel ?? null,
       }),
     );
+  } else if (reserveCoverPage) {
+    content.push(...makeCoverPlaceholder());
   }
+  const firstPageIsCover = includeCoverPage || reserveCoverPage;
 
   // PFBB child note page -----------------------------------------------
   // Slice 10H.10 — inserted between cover and TOC. The builder needs
@@ -347,7 +362,12 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
   // compact hides empty rows from the main body, but the note page
   // always reflects the actual supplements regardless of display.
   if (pfbbChildOverlay) {
-    appendPfbbChildNote(content, pfbbChildOverlay, buildSectionTree(sections));
+    appendPfbbChildNote(
+      content,
+      pfbbChildOverlay,
+      buildSectionTree(sections),
+      destIdPrefix,
+    );
   }
 
   // Table of contents ---------------------------------------------------
@@ -386,7 +406,7 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
   if (tree.length === 0) {
     content.push({ text: "(no sections)", style: "empty", italics: true });
   } else {
-    walk(tree, content, convert, pfbbChildOverlay);
+    walk(tree, content, convert, destIdPrefix, pfbbChildOverlay);
   }
 
   // Attachments appendix (Slice 10L) ------------------------------------
@@ -402,8 +422,8 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
     // Standard page margins (Tore's spec, 2026-05-12) — see
     // pdfChrome.ts for the mm-source-of-truth.
     pageMargins: STANDARD_PAGE_MARGINS_PT,
-    header: makeHeader(chromeArgs, undefined, includeCoverPage, pageNumberOffset),
-    footer: makeFooter(chromeArgs, undefined, includeCoverPage, pageNumberOffset),
+    header: makeHeader(chromeArgs, undefined, firstPageIsCover),
+    footer: makeFooter(chromeArgs, undefined, firstPageIsCover),
     content,
     defaultStyle: { fontSize: 10 },
     styles: specPdfStyles,
@@ -429,12 +449,15 @@ function todayISO(): string {
 }
 
 /**
- * pdfmake destination id for a section heading. Used by the PFBB
- * child note page so its list of "sections with supplements" can be
- * clickable jump-links into the document.
+ * pdfmake destination id for a section heading. pdfmake's TOC links
+ * to it, and the PFBB child note page uses it for its list of
+ * "sections with supplements". The heading and every link to it MUST
+ * be built by this one function with the same prefix - a mismatch
+ * still renders, but the jumps then point nowhere. See
+ * {@link BuildSpecPdfArgs.destIdPrefix} for why the prefix exists.
  */
-function sectionDestId(sectionId: number): string {
-  return `section-${sectionId}`;
+export function sectionDestId(prefix: string, sectionId: number): string {
+  return `${prefix}section-${sectionId}`;
 }
 
 /**
@@ -456,6 +479,7 @@ function walk(
   nodes: readonly SectionNode[],
   out: Content[],
   htmlConverter: (html: string) => Content,
+  destIdPrefix: string,
   overlay?: PfbbChildPdfOverlay,
 ): void {
   for (const node of nodes) {
@@ -484,7 +508,7 @@ function walk(
         text: head,
         style: "sectionHeading",
         tocItem: true,
-        id: sectionDestId(section.id),
+        id: sectionDestId(destIdPrefix, section.id),
         ...(headingIsGrey ? { color: "#999" } : {}),
         // Indent the TOC line by the heading depth so deeper headings
         // are visually nested. 10 points per level is enough to see
@@ -510,7 +534,7 @@ function walk(
       out.push(htmlConverter(masterBody));
     }
     if (node.children.length > 0) {
-      walk(node.children, out, htmlConverter, overlay);
+      walk(node.children, out, htmlConverter, destIdPrefix, overlay);
     }
   }
 }
@@ -532,6 +556,7 @@ function appendPfbbChildNote(
   out: Content[],
   overlay: PfbbChildPdfOverlay,
   tree: readonly SectionNode[],
+  destIdPrefix: string,
 ): void {
   out.push({
     text: "Om denne bygningsdelsbeskrivelse",
@@ -583,7 +608,7 @@ function appendPfbbChildNote(
       out.push({
         text: label,
         style: "pfbbNoteListItem",
-        linkToDestination: sectionDestId(row.id),
+        linkToDestination: sectionDestId(destIdPrefix, row.id),
       } as unknown as Content);
     }
   }

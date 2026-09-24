@@ -33,6 +33,7 @@ import {
 } from "./buildSpecPdf.js";
 import {
   makeCover,
+  makeCoverPlaceholder,
   makeFooter,
   makeHeader,
   STANDARD_PAGE_MARGINS_PT,
@@ -89,9 +90,9 @@ export interface BuildCompositePdfArgs {
   chapters: CompositePdfChapter[];
   /** Cover page on by default; turn off for tests / specialised callers. */
   includeCoverPage?: boolean;
-  /** Add this many pages to the displayed page numbers (1 when a custom
-   *  cover is prepended after rendering). Default 0. */
-  pageNumberOffset?: number;
+  /** Leave page 1 blank for a custom cover put on after rendering (see
+   *  makeCoverPlaceholder). Ignored when includeCoverPage is true. */
+  reserveCoverPage?: boolean;
   /** TOC on by default. */
   includeToc?: boolean;
   /** Forwarded to each chapter — see {@link BuildSpecPdfArgs.compact}. */
@@ -122,7 +123,7 @@ export function buildCompositePdf(
     cover,
     chapters,
     includeCoverPage = true,
-    pageNumberOffset = 0,
+    reserveCoverPage = false,
     includeToc = true,
     compact = false,
     htmlConverter,
@@ -152,7 +153,10 @@ export function buildCompositePdf(
         contractLabel: cover.contractLabel ?? null,
       }),
     );
+  } else if (reserveCoverPage) {
+    content.push(...makeCoverPlaceholder());
   }
+  const firstPageIsCover = includeCoverPage || reserveCoverPage;
 
   // Unified TOC ---------------------------------------------------------
   // pdfmake's `toc` node collects every `tocItem: true` node in the
@@ -178,7 +182,7 @@ export function buildCompositePdf(
     // no cover + no TOC, since we'd start on page 1 with one). The
     // `pageBreak: "before"` on the chapter heading is the simplest
     // way to force this.
-    const isFirstNoChrome = i === 0 && !includeCoverPage && !includeToc;
+    const isFirstNoChrome = i === 0 && !firstPageIsCover && !includeToc;
     content.push({
       text: chapter.title,
       style: "chapterTitle",
@@ -213,6 +217,11 @@ export function buildCompositePdf(
       compact,
       sections: chapter.sections,
       htmlConverter,
+      // Task 150: section ids repeat across chapters (work-area and BDB
+      // sections live in separate tables with overlapping ids), and
+      // pdfmake rejects a duplicate node id anywhere in the document.
+      // The chapter's position is unique by construction.
+      destIdPrefix: compositeChapterDestPrefix(i),
     };
     if (chapter.attachments) sub.attachments = chapter.attachments;
     if (chapter.pfbbChildOverlay)
@@ -238,8 +247,8 @@ export function buildCompositePdf(
   return {
     pageSize: "A4",
     pageMargins: STANDARD_PAGE_MARGINS_PT,
-    header: makeHeader(chromeArgs, undefined, includeCoverPage, pageNumberOffset),
-    footer: makeFooter(chromeArgs, undefined, includeCoverPage, pageNumberOffset),
+    header: makeHeader(chromeArgs, undefined, firstPageIsCover),
+    footer: makeFooter(chromeArgs, undefined, firstPageIsCover),
     content,
     defaultStyle: { fontSize: 10 },
     styles: specPdfStyles,
@@ -248,6 +257,14 @@ export function buildCompositePdf(
       creator: "Spec Editor Community",
     },
   };
+}
+
+/**
+ * Node-id prefix for chapter `index` of a composite PDF. Exported so
+ * tests can name the ids without repeating the format.
+ */
+export function compositeChapterDestPrefix(index: number): string {
+  return `chapter-${index + 1}-`;
 }
 
 /** Type-guard for "is this pdfmake content node tagged with `style: X`". */

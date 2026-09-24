@@ -1593,6 +1593,13 @@ export interface MolioConfigView {
    * GLASSHOUSE_API_BASE_URL dev override affects both consistently.
    */
   glasshouseSignUpUrl: string;
+  /**
+   * Task 164 — TEMPORARY. The IP address the user typed in Settings
+   * for the license fallback, or `null`. Stored in its own file, not
+   * with the keys; see main/molioLicenseIpFallback.ts. Optional so
+   * nothing that builds a view without it breaks.
+   */
+  licenseIp?: string | null;
 }
 
 /**
@@ -1617,6 +1624,12 @@ export interface SetMolioConfigRequest {
   prdKey?: string | null;
   /** Pass `null` (literal) to clear, undefined to leave alone. */
   email?: string | null;
+  /**
+   * Task 164 — TEMPORARY. The IP address the user typed in Settings for
+   * the license fallback. `null` or "" clears it, undefined leaves it
+   * alone. Main rejects anything that is not an IP address.
+   */
+  licenseIp?: string | null;
 }
 
 /** Test-connection request. Email is required to validate the license. */
@@ -1845,6 +1858,36 @@ export type GetMolioReferencelistResult =
 /* ------------------------------------------------------------------ */
 
 /**
+ * Task 164 — TEMPORARY. What happened on the IP fallback of the last
+ * license check, when there was one. Absent means the email lookup
+ * answered on its own (or the entry predates Task 164).
+ *
+ * Molio's lookup by email is not reliable, so when it does not say
+ * yes the app asks Molio's "email OR IP" endpoint as well. Agreed with
+ * Molio as a stop-gap until their new license check lands (expected
+ * within 1-2 months of 2026-09-23); remove this type and every
+ * `ipFallback` field with it. See main/molioLicenseIpFallback.ts.
+ *
+ *  - `granted`   — email said no (or Molio's server failed), and the
+ *                  IP gave access. It was the IP that did it: the
+ *                  email had just been asked on its own.
+ *  - `denied`    — Molio answered no for the IP too.
+ *  - `failed`    — the IP question to Molio did not get an answer.
+ *  - `not-tried` — there was no IP to ask with: the lookup service
+ *                  did not answer, or it only found an IPv6 address
+ *                  (Molio's documentation does not say whether IPv6
+ *                  can match, so we do not send one we looked up).
+ *
+ * `source` says whether the IP was typed in by the user in Settings
+ * (`manual`, always wins) or found automatically (`lookup`).
+ */
+export type LicenseIpFallback =
+  | { outcome: "granted"; ip: string; source: "manual" | "lookup" }
+  | { outcome: "denied"; ip: string; source: "manual" | "lookup" }
+  | { outcome: "failed"; ip: string; source: "manual" | "lookup" }
+  | { outcome: "not-tried"; reason: "ipv6-only" | "lookup-failed" };
+
+/**
  * Discriminated state the top-toolbar pill renders. Computed in
  * main from the current config + the persistent license cache:
  *
@@ -1852,7 +1895,20 @@ export type GetMolioReferencelistResult =
  *    miss/stale + nothing in the current session pinged the API).
  *    Pill shows "License not verified" / clickable to open Settings.
  *  - `ok` — last validation said true and is fresh (≤24h).
+ *  - `provisional` — Task 141: we could NOT ask Molio (its server
+ *    returned 5xx), so the user is let in on a 60-minute lease that
+ *    renews for as long as Molio keeps failing. `since` is when the
+ *    current run of provisional access started, so the UI can say how
+ *    long it has been going. This is its own state and must stay
+ *    separate from `ok`: "Molio approved you" and "we could not ask
+ *    Molio" are different sentences, and saying the first when the
+ *    second is true is the bug Task 123 and 128 were about.
  *  - `no-license` — last validation said false.
+ *
+ * Task 164 (TEMPORARY) — `ok`, `provisional` and `no-license` may
+ * carry `ipFallback`, which says whether the IP fallback was used and
+ * how it went. `ok` with `ipFallback.outcome === "granted"` is "Molio
+ * approved your IP address, not your email", and the UI must say so.
  *  - `no-key` — no subscription key configured for the active env.
  *  - `no-email` — key is set but no email; license can't be validated.
  *
@@ -1862,8 +1918,9 @@ export type GetMolioReferencelistResult =
  * a "Connection failed" pill state distinct from "no license".
  */
 export type LicenseStatus =
-  | { kind: "ok" }
-  | { kind: "no-license" }
+  | { kind: "ok"; ipFallback?: LicenseIpFallback }
+  | { kind: "provisional"; since: number; ipFallback?: LicenseIpFallback }
+  | { kind: "no-license"; ipFallback?: LicenseIpFallback }
   | { kind: "no-key" }
   | { kind: "no-email" }
   | { kind: "unknown" };

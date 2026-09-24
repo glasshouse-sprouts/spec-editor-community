@@ -187,7 +187,10 @@ describe("buildSourceTree", () => {
     expect(tree.contractGroups[1].workAreas.map((w) => w.id)).toEqual([101]);
   });
 
-  it("keeps an empty group for a contract that has no work areas", () => {
+  // Task 158: an empty contract group offers nothing to tick (the
+  // checkboxes sit on work areas and BDBs), so it is skipped - the
+  // same rule buildExportTree already uses.
+  it("skips a contract that has no work areas", () => {
     const tree = buildSourceTree(
       makeSummary({
         contracts: [
@@ -204,9 +207,75 @@ describe("buildSourceTree", () => {
         ],
       }),
     );
-    expect(tree.contractGroups).toHaveLength(2);
+    expect(tree.contractGroups.map((g) => g.id)).toEqual([10]);
     const labels = tree.contractGroups.map((g) => g.label);
-    expect(labels).toContain("C02 - Empty");
+    expect(labels).not.toContain("C02 - Empty");
+  });
+
+  it("keeps non-empty contracts in the same order when empty ones are skipped", () => {
+    const wa = (id: number, contractId: number) => ({
+      id,
+      workAreaCode: String(id),
+      workAreaName: `WA ${id}`,
+      contractId,
+    });
+    const tree = buildSourceTree(
+      makeSummary({
+        // Empty contracts interleaved alphabetically with non-empty ones.
+        contracts: [
+          contract(40, "C04", "Tag"),
+          contract(15, "C015", "Tom B"),
+          contract(10, "C01", "Fundering"),
+          contract(25, "C025", "Tom C"),
+          contract(20, "C02", "Facade"),
+          contract(5, "C00", "Tom A"),
+        ],
+        workAreas: [wa(100, 10), wa(200, 20), wa(400, 40)],
+      }),
+    );
+    expect(tree.contractGroups.map((g) => g.label)).toEqual([
+      "C01 - Fundering",
+      "C02 - Facade",
+      "C04 - Tag",
+    ]);
+    expect(
+      tree.contractGroups.map((g) => g.workAreas.map((w) => w.id)),
+    ).toEqual([[100], [200], [400]]);
+  });
+
+  it("keeps the trailing '[No contract]' group next to skipped empty contracts", () => {
+    const tree = buildSourceTree(
+      makeSummary({
+        contracts: [contract(20, "C02", "Empty")],
+        workAreas: [
+          {
+            id: 101,
+            workAreaCode: "99",
+            workAreaName: "Orphan",
+            contractId: null,
+          },
+        ],
+      }),
+    );
+    expect(tree.contractGroups).toHaveLength(1);
+    expect(tree.contractGroups[0].id).toBe(null);
+    expect(tree.contractGroups[0].label).toBe("[No contract]");
+    expect(tree.contractGroups[0].workAreas.map((w) => w.id)).toEqual([101]);
+  });
+
+  it("gives an empty tree when the source only has empty contracts", () => {
+    // ImportModal.tsx (TreeSection) shows modal.import.tree.empty when
+    // both arrays are empty - this is the input that lands there.
+    const tree = buildSourceTree(
+      makeSummary({
+        contracts: [
+          contract(10, "C01", "Tom"),
+          contract(20, "C02", "Også tom"),
+        ],
+      }),
+    );
+    expect(tree.contractGroups).toEqual([]);
+    expect(tree.standaloneBdbs).toEqual([]);
   });
 
   it("lists standalone BDBs (workSpecId=null) at the root", () => {

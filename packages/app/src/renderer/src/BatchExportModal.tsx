@@ -44,6 +44,9 @@ export type BatchExportStatus =
   | { kind: "writing" }
   | {
       kind: "saved";
+      /** Task 151 — set by the Word export so the partial-success line
+       *  says "Word-filer" instead of "PDF'er". Omitted = PDF. */
+      format?: "docx";
       directory: string;
       writtenCount: number;
       errors: Array<{ fileBase: string; message: string }>;
@@ -445,7 +448,9 @@ export function BatchExportModal(props: BatchExportModalProps): JSX.Element {
                 <button
                   type="button"
                   className="modal__button"
-                  onClick={() => onExportDocx(wordRefs, { compact, includeToc })}
+                  onClick={() =>
+                    onExportDocx(wordRefs, { compact, includeToc })
+                  }
                   disabled={busy || wordCount === 0}
                   title={
                     wordCount === 0
@@ -888,10 +893,15 @@ function BatchStatusLine({
     return (
       <div className="batch-export-modal__status batch-export-modal__status--warn">
         <p>
-          {t("modal.batchExport.success.savedPartial", {
-            written: status.writtenCount,
-            total,
-          })}{" "}
+          {t(
+            status.format === "docx"
+              ? "modal.batchExport.success.savedPartialDocx"
+              : "modal.batchExport.success.savedPartial",
+            {
+              written: status.writtenCount,
+              total,
+            },
+          )}{" "}
           <code>{status.directory}</code>.
         </p>
         <ul>

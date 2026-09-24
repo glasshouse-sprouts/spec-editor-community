@@ -22,6 +22,12 @@
  * Phase A keeps it minimal — no progress UI in the modal yet; if a
  * build or write fails we surface the error in the returned summary
  * and the caller decides what to show.
+ *
+ * Task 151: the caller used to throw that summary away (`.finally()`
+ * never sees the value), so a failed Word export looked exactly like
+ * "nothing happened". `docxSummaryToStatus` below turns the summary
+ * into the export modal's status line; App.tsx shows it and keeps the
+ * modal open unless the export was a clean success.
  */
 
 import { useCallback } from "react";
@@ -38,7 +44,7 @@ import {
   BdbDocxBuildError,
   type DocxSpecRef,
 } from "./word/buildBdbDocx.js";
-import { cpHasAnyData } from "./word/buildCpDocx.js";
+import type { BatchExportStatus } from "./BatchExportModal.js";
 
 /** One built spec along with the metadata we need to surface errors
  *  and to build the suggested filename. */
@@ -56,6 +62,49 @@ export interface DocxExportSummary {
   /** True when the user cancelled the OS save dialog for at least
    *  one spec. Not an error — just informational. */
   cancelled: boolean;
+}
+
+/**
+ * Task 151 — what the export modal should show after a Word export.
+ *
+ * Returns `null` for a clean success (every requested file written,
+ * nothing failed, nothing cancelled): the caller closes the modal, as
+ * it always has. Every other outcome returns a status and the modal
+ * stays open so the user can read it:
+ *   - some written, some failed  → "saved" with the per-file errors
+ *   - nothing written, failures  → "error" naming each failed spec
+ *   - nothing written, cancelled → "cancelled"
+ *   - nothing written, no reason → "error" (should not happen; it
+ *     used to be the silent case, so it must never be silent again)
+ *
+ * Pure so it can be unit-tested without React or Electron.
+ */
+export function docxSummaryToStatus(
+  summary: DocxExportSummary,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): BatchExportStatus | null {
+  const { written, errors, cancelled } = summary;
+  if (written.length > 0 && errors.length === 0) return null;
+  if (written.length > 0) {
+    return {
+      kind: "saved",
+      format: "docx",
+      directory: written[0]!.replace(/[/\\][^/\\]+$/, ""),
+      writtenCount: written.length,
+      errors: errors.map((e) => ({ fileBase: e.label, message: e.message })),
+    };
+  }
+  if (errors.length > 0) {
+    return {
+      kind: "error",
+      message: errors.map((e) => `${e.label}: ${e.message}`).join("; "),
+    };
+  }
+  if (cancelled) return { kind: "cancelled" };
+  return {
+    kind: "error",
+    message: t("modal.batchExport.error.docxNothingWritten"),
+  };
 }
 
 export interface DocxExportController {
@@ -79,17 +128,6 @@ export interface DocxExportController {
     bdbIds: readonly number[],
     opts?: { compact?: boolean; includeToc?: boolean },
   ): Promise<DocxExportSummary>;
-}
-
-/** True when a control plan has no user-entered data (no rows, or
- *  every row is entirely blank). Word exports skip these silently
- *  (matching PDF batch behaviour, which doesn't emit CP jobs at all).
- *  Non-CP refs always return false. Delegates to the shared
- *  `cpHasAnyData` helper so both the GUI and MCP paths apply
- *  byte-identical "empty" rules. */
-function isEmptyControlPlan(data: FilePayload, ref: DocxSpecRef): boolean {
-  if (ref.kind !== "cp") return false;
-  return !cpHasAnyData(data, ref.id);
 }
 
 /** Human label for a spec — used as the filename middle part AND
@@ -141,17 +179,25 @@ export function useDocxExport(data: FilePayload | null): DocxExportController {
       const projectName = (data.project?.name ?? "Project").trim() || "Project";
       const safeProject = sanitiseFilePart(projectName);
 
-      // DOCX-CP-EmptySkip: silently drop CPs with zero rows. Mirrors
-      // PDF batch behaviour (where empty CPs simply don't produce a
-      // PDF). No error, no entry in `errors` — just no file.
-      const refsToBuild = refs.filter((ref) => !isEmptyControlPlan(data, ref));
+      // Task 151: every ticked spec is built - empty control plans
+      // included. Until 2026-09-24 this filtered out control plans
+      // with no filled-in rows ("DOCX-CP-EmptySkip") without a word,
+      // on the grounds that the PDF export did the same. It no longer
+      // does: since Task 109 the PDF export writes a file for every
+      // ticked control plan, empty or not. So the same tick gave a
+      // PDF and no Word file. A control plan the user ticked is now
+      // exported in Word too - title, metadata, group headings and an
+      // empty table, which is what the user asked for and can see.
+      // The MCP Word path (useMcpExportBridge) still skips empty
+      // plans on purpose: there an AI exports in bulk and blank
+      // documents are noise.
 
       // Build every .docx FIRST so we can decide between the single-
       // file Save dialog (1 spec) and the folder picker (2+ specs).
       // Build errors are collected here; the dialog flow then runs
       // against the surviving items.
       const built: BuiltSpec[] = [];
-      for (const ref of refsToBuild) {
+      for (const ref of refs) {
         const label = labelForRef(data, ref);
         try {
           const bytes = buildSpecDocx({ data, spec: ref, compact, includeToc });

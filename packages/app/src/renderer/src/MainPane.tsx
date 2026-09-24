@@ -30,6 +30,7 @@ import type {
   WorkSpecInfo,
 } from "../../shared/ipc.js";
 import { ControlPlanTableView } from "./ControlPlanTableView.js";
+import { formatDate, formatTimestamp } from "./dateHelpers.js";
 import { basename } from "./fileUtils.js";
 import { useT } from "./i18n/i18n.js";
 import {
@@ -50,6 +51,7 @@ import type { RefSubTab } from "./refTypes.js";
 import { PfbbBrokenSupplementsBanner } from "./PfbbBrokenSupplementsBanner.js";
 import { buildMergedChildView } from "./pfbbMergedView.js";
 import { Sidebar, sidebarContractLabel } from "./Sidebar.js";
+import { compareCodeThenName } from "./sortHelpers.js";
 import { SpecTabView } from "./SpecTabView.js";
 import type { TabTarget } from "./tabs.js";
 
@@ -1051,9 +1053,21 @@ function ProjectView({
             <dt>{t("projectOverview.metadata.createdBySystem")}</dt>
             <dd>{p?.createdBySystem || <em>—</em>}</dd>
             <dt>{t("projectOverview.metadata.created")}</dt>
-            <dd>{p?.createdDate || <em>—</em>}</dd>
+            {/* Task 144: "Oprettet" is shown as a DATE, deliberately
+             *  without a clock (owner's decision 2026-09-21).
+             *
+             *  Note that this is a presentation choice, not a property
+             *  of the data: the synthetic fixtures in the repo all sit
+             *  at exactly midnight UTC, but a real Molio-produced file
+             *  carries a measured time ("2026-04-10 10:00:06.8455715").
+             *  For such a file the time of day is dropped here on
+             *  purpose - the creation DAY is what a reader wants, and
+             *  a clock on this row invites the reader to compare it
+             *  with "Senest ændret", which is the row that actually
+             *  tracks a moment. */}
+            <dd>{formatDate(p?.createdDate) || <em>—</em>}</dd>
             <dt>{t("projectOverview.metadata.lastModified")}</dt>
-            <dd>{p?.modifiedDate || <em>—</em>}</dd>
+            <dd>{formatTimestamp(p?.modifiedDate) || <em>—</em>}</dd>
             <dt>{t("projectOverview.metadata.schemaVersion")}</dt>
             <dd>
               <code>{data.dbVersion}</code>
@@ -1346,10 +1360,11 @@ function ContractsCard({
         </p>
       ) : (
         <ul className="contracts-card__list">
-          {contracts.map((c, idx) => {
-            const code = effectiveContractCodeFor(c.id, c.contractCode);
-            const name = effectiveContractNameFor(c.id, c.contractName);
-            const label = sidebarContractLabel(code, name);
+          {sortedContractRows(
+            contracts,
+            effectiveContractCodeFor,
+            effectiveContractNameFor,
+          ).map(({ contract: c, label }, idx) => {
             const edited = isContractEditedFor(c.id);
             const count = countsById.get(c.id) ?? 0;
             const isFirst = idx === 0;
@@ -1379,6 +1394,38 @@ function ContractsCard({
       )}
     </section>
   );
+}
+
+/**
+ * Task 111: the contracts list sorts exactly like the tree in the
+ * Sidebar - compareCodeThenName on the trimmed EFFECTIVE code, with
+ * the label as tie-breaker, so an unsaved rename moves the row at once
+ * and both lists on the project page agree. Before this the list was
+ * in creation order (a call site missed when sorting was centralised
+ * in Slice 10B).
+ */
+function sortedContractRows(
+  contracts: ContractInfo[],
+  effectiveContractCodeFor: (
+    contractId: number,
+    originalCode: string | null,
+  ) => string | null,
+  effectiveContractNameFor: (
+    contractId: number,
+    originalName: string | null,
+  ) => string | null,
+): { contract: ContractInfo; code: string; label: string }[] {
+  return contracts
+    .map((c) => {
+      const code = effectiveContractCodeFor(c.id, c.contractCode);
+      const name = effectiveContractNameFor(c.id, c.contractName);
+      return {
+        contract: c,
+        code: (code ?? "").trim(),
+        label: sidebarContractLabel(code, name),
+      };
+    })
+    .sort((a, b) => compareCodeThenName(a.code, a.label, b.code, b.label));
 }
 
 /**

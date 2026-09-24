@@ -81,7 +81,12 @@ export interface CoverEngine {
    * export's `coverPath` override). Returns null if it can't be read/parsed.
    */
   resolveTemplateFromPath(path: string): Promise<CoverActiveTemplate | null>;
-  /** Prepend the resolved custom cover to a finished body PDF. */
+  /**
+   * Put the resolved custom cover on a finished body PDF. The body MUST
+   * have been rendered with `reserveCoverPage: true`: its blank page 1
+   * is replaced by the cover (Task 173), so pdfmake's own page numbers
+   * - table of contents included - already count the cover.
+   */
   applyCover(
     active: CoverActiveTemplate,
     bodyPdfBytes: Uint8Array,

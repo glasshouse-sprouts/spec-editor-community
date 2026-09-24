@@ -52,19 +52,39 @@ function stripPdfExt(name: string): string {
   return name.replace(/\.pdf$/i, "");
 }
 
+/**
+ * Task 150 — may the export dialog close after this outcome? Only after
+ * a clean success: every file written and no errors. Errors, a partial
+ * save and a cancelled save dialog all keep the dialog open, so the
+ * user can read the status line (and, after a cancel, try again).
+ * Same rule as `docxSummaryToStatus` returning null for the Word flow.
+ */
+export function pdfExportShouldClose(status: BatchExportStatus): boolean {
+  return status.kind === "saved" && status.errors.length === 0;
+}
+
 export interface ExportController {
   /** Open the modal. Resets selection + status on every invocation so
    *  the dialog always starts in a predictable clean state. */
   open: () => void;
   /**
-   * Programmatically close the modal. The PDF flow lets the user
-   * close manually via the Cancel/Close button after a success
-   * (so they can see the "X written" status). The Word flow
+   * Programmatically close the modal. The PDF flow closes it itself
+   * after a clean success and otherwise leaves it open with a status
+   * line (Task 150, see `pdfExportShouldClose`). The Word flow
    * (DOCX-4) doesn't have an equivalent in-modal status line yet,
    * so the host calls this from its onExportDocx wrapper to dismiss
    * the modal as soon as the OS save dialog returns.
+   *
+   * Task 151: the Word flow now calls this ONLY after a clean
+   * success. Every other outcome goes through `showStatus`.
    */
   close: () => void;
+  /**
+   * Task 151 — put a status line in the open modal and leave it open,
+   * so the user can read what happened. Used by the Word flow for
+   * errors, partial saves and a cancelled save dialog.
+   */
+  showStatus: (status: BatchExportStatus) => void;
   /** Rendered modal element; `null` while the modal is closed. Mount
    *  this somewhere near the app root (before any page content that
    *  might unmount, to keep the in-flight write safe). */
@@ -227,10 +247,16 @@ export function useExportController(
     if (data == null) return;
     // Resolve the active custom cover once for the whole export
     // (Glasshouse-only; always null in Community → no change).
-    const coverActive = await coverEngine.resolveActiveTemplate({
-      moliospecPath: data.path,
-      projectGuid: data.project?.projectGuid ?? null,
-    });
+    // Task 173: the "include cover" tick governs EVERY cover. Off means
+    // no cover at all - not even a custom one - so we don't resolve the
+    // template. Doing it here keeps the rule in one place; the builders
+    // (buildBytesFor, executeCompositeExport) just see "no custom cover".
+    const coverActive = includeCoverPage
+      ? await coverEngine.resolveActiveTemplate({
+          moliospecPath: data.path,
+          projectGuid: data.project?.projectGuid ?? null,
+        })
+      : null;
     // 2026-05-12. The job planner is the single source of truth for
     // "what files will we produce." It honours `groupBy` — perSpec
     // returns one single-job per checked target (today's behaviour);
@@ -266,11 +292,20 @@ export function useExportController(
       return;
     }
 
-    // 2026-05-12 (Tore): close the modal after every export path,
-    // matching the Word flow. The OS save dialog already gave the
-    // user confirmation; keeping the modal open after a successful
-    // save is just noise. We wrap the whole pipeline in try/finally
-    // so cancel + error paths close too.
+    // Task 150: close the modal ONLY after a clean success. Until
+    // 2026-09-24 a `finally` closed it after every path (2026-05-12,
+    // "matching the Word flow"), which threw away the status line the
+    // code had just set: a failed PDF export vanished without a word,
+    // and cancelling the save dialog dropped the user out of the export
+    // dialog. Same rule as the Word flow since Task 151. Every path
+    // below ends in `finish(status)`.
+    const finish = (final: BatchExportStatus): void => {
+      if (pdfExportShouldClose(final)) {
+        closeModal();
+      } else {
+        setStatus(final);
+      }
+    };
     try {
       setStatus({ kind: "building", done: 0, total: jobs.length });
       const items: SavePdfBatchItem[] = [];
@@ -344,7 +379,7 @@ export function useExportController(
       }
 
       if (items.length === 0) {
-        setStatus({
+        finish({
           kind: "error",
           message:
             buildErrors[0]?.message ??
@@ -363,16 +398,16 @@ export function useExportController(
           bytes: only.bytes,
         });
         if (single.kind === "saved") {
-          setStatus({
+          finish({
             kind: "saved",
             directory: single.path.replace(/[/\\][^/\\]+$/, ""),
             writtenCount: 1,
             errors: buildErrors,
           });
         } else if (single.kind === "cancelled") {
-          setStatus({ kind: "cancelled" });
+          finish({ kind: "cancelled" });
         } else {
-          setStatus({ kind: "error", message: single.message });
+          finish({ kind: "error", message: single.message });
         }
         return;
       }
@@ -381,20 +416,22 @@ export function useExportController(
         items,
       });
       if (result.kind === "saved") {
-        setStatus({
+        finish({
           kind: "saved",
           directory: result.directory,
           writtenCount: result.written.length,
           errors: [...buildErrors, ...result.errors],
         });
       } else if (result.kind === "cancelled") {
-        setStatus({ kind: "cancelled" });
+        finish({ kind: "cancelled" });
       } else {
-        setStatus({ kind: "error", message: result.message });
+        finish({ kind: "error", message: result.message });
       }
-    } finally {
-      // Always close — see comment at the top of handleExport.
-      closeModal();
+    } catch (err) {
+      // Anything the per-job try/catch doesn't cover - the save IPC
+      // throwing, say. Before Task 150 this escaped as an unhandled
+      // rejection behind a closed dialog.
+      finish({ kind: "error", message: friendlyErrorForDialog(err) });
     }
   };
 
@@ -430,6 +467,7 @@ export function useExportController(
   return {
     open: openModal,
     close: closeModal,
+    showStatus: setStatus,
     modalElement,
     hasTargets,
     hideMarkKinds,

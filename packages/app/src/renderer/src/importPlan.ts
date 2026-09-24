@@ -154,8 +154,13 @@ export function buildSourceTree(summary: ImportSourceSummary): SourceTree {
   const byId = new Map(summary.contracts.map((c) => [c.id, c]));
 
   // 3. Build one group per contract that appears in either the
-  //    contracts table or the work-areas table. A contract that
-  //    exists but has no work areas still shows up (empty group).
+  //    contracts table or the work-areas table - but only if it has
+  //    at least one work area. Same rule as buildExportTree
+  //    (exportTree.ts). The checkboxes in the Import modal sit on
+  //    work areas and BDBs, not on the contract, so an empty contract
+  //    group would be a row with nothing to tick (Task 158). If the
+  //    import is ever extended to bring over a contract on its own
+  //    (code + name, no content), this skip has to go again.
   const groupIds = new Set<number | null>();
   for (const c of summary.contracts) groupIds.add(c.id);
   for (const wa of summary.workAreas) {
@@ -165,12 +170,14 @@ export function buildSourceTree(summary: ImportSourceSummary): SourceTree {
   const contractGroups: SourceTreeContractGroup[] = [];
   for (const id of groupIds) {
     if (id === null) continue; // handled below as "[No contract]"
+    const groupWorkAreas = waByContract.get(id);
+    if (!groupWorkAreas || groupWorkAreas.length === 0) continue; // Task 158
     const contract = byId.get(id);
     const label = contract ? contractLabel(contract) : `Contract #${id}`; // fallback — shouldn't happen, but safe.
     contractGroups.push({
       id,
       label,
-      workAreas: sortWorkAreas(waByContract.get(id) ?? []).map((wa) =>
+      workAreas: sortWorkAreas(groupWorkAreas).map((wa) =>
         buildWorkAreaNode(wa, bdbByWs.get(wa.id) ?? []),
       ),
     });

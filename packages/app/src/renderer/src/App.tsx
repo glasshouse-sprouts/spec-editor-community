@@ -258,7 +258,7 @@ import { ShortcutsCheatSheet } from "./modals/ShortcutsCheatSheet.js";
 import { AboutDialog } from "./modals/AboutDialog.js";
 import { useAppUpdater } from "./state/useAppUpdater.js";
 import { useT } from "./i18n/i18n.js";
-import { useDocxExport } from "./useDocxExport.js";
+import { docxSummaryToStatus, useDocxExport } from "./useDocxExport.js";
 import { useExportController } from "./useExportController.js";
 // Community edition: MCP export bridge removed.
 import { WelcomeScreen } from "./WelcomeScreen.js";
@@ -588,21 +588,36 @@ export function App(): JSX.Element {
     referenceFile,
     versionCompareFmt,
     (refs, opts) => {
-      // Build the Word docs + show the OS dialog, then close the
-      // export modal on completion (success, cancel, or error).
-      // `opts.compact` mirrors the modal's "Compact (hide empty
-      // sections)" checkbox; `opts.includeToc` mirrors the "Table of
-      // contents" checkbox (picks the with-/no-TOC Word template) so
-      // Word respects the same toggles PDFs already do. `refs` mixes
-      // BDB + work-area specs in a single call (DOCX-WA).
+      // Build the Word docs + show the OS dialog. `opts.compact`
+      // mirrors the modal's "Compact (hide empty sections)" checkbox;
+      // `opts.includeToc` mirrors the "Table of contents" checkbox
+      // (picks the with-/no-TOC Word template) so Word respects the
+      // same toggles PDFs already do. `refs` mixes BDB + work-area +
+      // control-plan specs in a single call (DOCX-WA / DOCX-CP).
+      //
+      // Task 151: this used to be `.finally(close)`, which never saw
+      // the summary - every failure closed the modal without a word.
+      // Now a clean success closes as before; anything else (build
+      // or write error, partial save, cancelled dialog, a thrown
+      // exception) is shown in the modal, which stays open.
       void docxExport
         .exportSpecs(refs, {
           compact: opts.compact,
           includeToc: opts.includeToc,
         })
-        .finally(() => {
-          exportController.close();
-        });
+        .then(
+          (summary) => {
+            const status = docxSummaryToStatus(summary, t);
+            if (status == null) exportController.close();
+            else exportController.showStatus(status);
+          },
+          (err: unknown) => {
+            exportController.showStatus({
+              kind: "error",
+              message: friendlyErrorForDialog(err),
+            });
+          },
+        );
     },
   );
 

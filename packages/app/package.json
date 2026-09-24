@@ -1,7 +1,7 @@
 {
   "name": "@molio2-editor/app",
   "productName": "Spec Editor Community",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Electron desktop app for viewing and editing Molio 2.0 files.",
   "author": {

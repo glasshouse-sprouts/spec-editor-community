@@ -212,15 +212,11 @@ export type ChromeFn = (
 export function makeHeader(
   args: PdfChromeArgs,
   margins: PdfChromeMargins = STANDARD_CHROME_MARGINS,
-  // Skip the header on page 1 (default) — but ONLY when page 1 carries
-  // the built-in cover. Builders pass `includeCoverPage` here so that a
-  // custom (.speccustom) cover, which turns the auto cover off, still
-  // gets a header on the body's first page.
+  // Skip the header on page 1 (default) — but ONLY when page 1 is a
+  // cover: the built-in one, or the blank page reserved for a custom
+  // (.speccustom) cover (see makeCoverPlaceholder). With no cover at all
+  // the body's first page gets a header.
   skipFirstPage = true,
-  // Add this many pages to the displayed "Side" numbers. Used when a
-  // custom cover is prepended OUTSIDE pdfmake (pdfmake counts only the
-  // body), so the numbers still match the assembled PDF.
-  pageOffset = 0,
 ): ChromeFn {
   const project = (args.projectName ?? "").trim();
   const workArea = (args.workAreaName ?? "").trim();
@@ -283,13 +279,7 @@ export function makeHeader(
                 metaCell("Dato", args.dateText),
               ],
               [cell(workArea), metaCell("Rev.dato", revDate)],
-              [
-                cell(docLabel),
-                metaCell(
-                  "Side",
-                  `${currentPage + pageOffset}/${pageCount + pageOffset}`,
-                ),
-              ],
+              [cell(docLabel), metaCell("Side", `${currentPage}/${pageCount}`)],
             ],
           },
           layout: {
@@ -392,7 +382,6 @@ export function makeFooter(
   args: PdfChromeArgs,
   margins: PdfChromeMargins = STANDARD_CHROME_MARGINS,
   skipFirstPage = true,
-  pageOffset = 0,
 ): ChromeFn {
   return (currentPage, pageCount) => {
     if (skipFirstPage && currentPage === 1) return { text: "" };
@@ -417,7 +406,7 @@ export function makeFooter(
               color: "#666",
             },
             {
-              text: `Page ${currentPage + pageOffset} of ${pageCount + pageOffset}`,
+              text: `Page ${currentPage} of ${pageCount}`,
               color: "#666",
               alignment: "right",
             },
@@ -541,4 +530,16 @@ export function makeCover(args: PdfCoverArgs): Content[] {
   });
 
   return content;
+}
+
+/**
+ * A blank page 1, reserved for a custom (.speccustom) cover that is put
+ * on after rendering (Task 173). pdfmake then counts the cover like the
+ * built-in one, so the page numbers it writes itself - the table of
+ * contents above all, which has no offset setting - match the finished
+ * PDF. composeCoverPdf swaps this page for the cover. Builders pair it
+ * with `skipFirstPage` in the chrome, exactly as for makeCover.
+ */
+export function makeCoverPlaceholder(): Content[] {
+  return [{ text: "", pageBreak: "after" }];
 }

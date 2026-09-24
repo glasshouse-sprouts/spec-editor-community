@@ -389,9 +389,9 @@ export async function buildBytesFor(
       workAreaName: ws.workAreaName ?? null,
       companyName,
       includeCoverPage: includeAutoCover,
-      // A custom cover is prepended after rendering — shift page numbers
-      // by 1 so they count it (matching the built-in cover's numbering).
-      pageNumberOffset: opts.cover ? 1 : 0,
+      // A custom cover replaces a blank page 1 after rendering, so pdfmake
+      // counts it in every page number it writes (Task 173).
+      reserveCoverPage: opts.cover != null,
       includeToc: opts.includeToc,
       compact: opts.compact,
       sections,
@@ -534,9 +534,9 @@ export async function buildBytesFor(
       workAreaName: parentWa?.workAreaName ?? null,
       companyName,
       includeCoverPage: includeAutoCover,
-      // A custom cover is prepended after rendering — shift page numbers
-      // by 1 so they count it (matching the built-in cover's numbering).
-      pageNumberOffset: opts.cover ? 1 : 0,
+      // A custom cover replaces a blank page 1 after rendering, so pdfmake
+      // counts it in every page number it writes (Task 173).
+      reserveCoverPage: opts.cover != null,
       includeToc: opts.includeToc,
       compact: opts.compact,
       sections,
@@ -577,7 +577,7 @@ export async function buildBytesFor(
     workAreaName: cpWa?.workAreaName ?? null,
     companyName,
     includeCoverPage: includeAutoCover,
-    pageNumberOffset: opts.cover ? 1 : 0,
+    reserveCoverPage: opts.cover != null,
     headers,
     rows,
   });

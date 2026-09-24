@@ -10,6 +10,30 @@ specification files (`.moliospec`). Built with Electron and TypeScript.
 > from an internal canonical source; see CONTRIBUTING.md for how that affects
 > contributions.
 
+## Download
+
+You do not need to build this yourself. Installers are published on GitHub
+Releases:
+
+**[Download the latest release](https://github.com/glasshouse-sprouts/spec-editor-community/releases/latest)**
+
+| Platform | File | Notes |
+|---|---|---|
+| macOS, Apple Silicon | `.dmg` | Signed and notarized by 3dbyggeri danmark ApS, so it opens normally - no right-click workaround |
+| Windows, 64-bit | `.exe` | Not code-signed, so SmartScreen warns on first run. Choose "More info", then "Run anyway" |
+
+**Intel Macs are not supported.** The macOS build is Apple Silicon only. There
+is no universal build yet, for the reason recorded in
+`packages/app/electron-builder.yml`.
+
+The `.zip` in each release is not an alternative download. It is there because
+the macOS updater can only install from a zip. Take the `.dmg`.
+
+Once installed, the app keeps itself up to date from these same releases. It
+checks on its own; there is also a button in the About panel.
+
+Everything below is for people who want to read or build the source.
+
 ## Features
 
 - Open, edit and save `.moliospec` files.

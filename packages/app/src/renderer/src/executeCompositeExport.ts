@@ -115,9 +115,9 @@ export async function buildBytesForCompositeJob(
     },
     chapters,
     includeCoverPage: includeAutoCover,
-    // A custom cover is prepended below — shift page numbers by 1 so they
-    // count it (matching the built-in cover's numbering).
-    pageNumberOffset: opts.cover ? 1 : 0,
+    // A custom cover replaces a blank page 1 below, so pdfmake counts it
+    // in every page number it writes (Task 173).
+    reserveCoverPage: opts.cover != null,
     includeToc: opts.includeToc,
     compact: opts.compact,
   };

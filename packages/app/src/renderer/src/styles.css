@@ -2411,6 +2411,25 @@ button.counter--clickable:focus-visible {
   color: var(--c-text-muted);
   font-size: 12px;
   margin-top: 2px;
+  /* Task 143 (fejl 1): the counter cells are one third of an already
+   * narrow right column, and the Danish labels are single long
+   * compounds - "Bygningsdelsbeskrivelser" is 24 characters with no
+   * space to break at, so the word overflowed its cell and was
+   * clipped by the column's own overflow. The English labels are
+   * multi-word and already wrap on their own.
+   *
+   * Where the break lands is decided in the CATALOGUE, not here: the
+   * two long Danish labels carry a soft hyphen (\u00ad) written as a
+   * JSON escape in messages.da.json, so they break as
+   * "Bygningsdels-" / "beskrivelser" and show the hyphen only when
+   * they actually break. hyphens: manual is the default and is
+   * spelled out so it is not removed by accident - without it the
+   * soft hyphen is ignored. break-word stays as the safety net for a
+   * label with no soft hyphen, or a column too narrow even for the
+   * first half. balance evens out the two resulting lines. */
+  hyphens: manual;
+  overflow-wrap: break-word;
+  text-wrap: balance;
 }
 
 /* ---------- Phase 10 Slice 10A — Project Overview layout ---------- */
@@ -2419,11 +2438,31 @@ button.counter--clickable:focus-visible {
  * right column stacks metadata → counters → contracts → export. */
 .project-overview {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  /* Task 143 (fejl 2): the tree column takes whatever the window
+   * gives it, the card column keeps a readable width and stays on
+   * the right edge. The old "2fr 1fr" plus max-width: 1400px left a
+   * dead band on the right of any wider window, and two ratios would
+   * have made the card column grow without limit once the cap was
+   * removed.
+   *
+   * The two bounds are the owner's, from the card (2026-09-18):
+   *   460px  = what the right column reaches at the old 1400px cap,
+   *            (1400 - 20) / 3, i.e. "as wide as it can get today"
+   *   320px  = --ref-panel-width, the width this project has already
+   *            decided a side panel needs in order to be usable
+   *
+   * Between the two it follows 33%, which is what "2fr 1fr" already
+   * gave the right column (they differ by a few pixels because a
+   * percentage does not subtract the gap). The card suggested
+   * minmax(320px, 460px) instead; that reaches its maximum as soon as
+   * there is room for it, so the right column would jump to 460px at
+   * the default window width and take 120px off the tree - which the
+   * card's own acceptance point 4 ("unchanged at narrow widths")
+   * rules out. With 33% in the middle the column grows the way it
+   * does today and stops at 460px from about 1400px window width,
+   * which is acceptance point 2. */
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 33%, 460px);
   gap: 20px;
-  /* Wider than .main-pane__card's 780px cap on purpose — the
-   * overview page owns the whole main-pane width now. */
-  max-width: 1400px;
   /* Fill the .main-pane__project wrapper height so the inner
    * columns have a bounded box to scroll inside. Without this
    * the grid tracks would size to their content and both columns

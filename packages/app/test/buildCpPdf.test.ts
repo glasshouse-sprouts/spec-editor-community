@@ -343,3 +343,38 @@ function collectAllText(node: unknown): string[] {
   visit(node);
   return out;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Task 173 - a blank page 1 reserved for a custom cover              */
+/* ------------------------------------------------------------------ */
+
+describe("buildCpPdf - reserveCoverPage (Task 173)", () => {
+  type Chrome = (p: number, pc: number) => unknown;
+
+  it("starts with a blank page and treats page 1 as the cover in header and footer", () => {
+    const doc = buildCpPdf({
+      ...defaultArgs(),
+      projectName: "My project",
+      reserveCoverPage: true,
+    });
+    const content = doc.content as Content[];
+    expect(content[0]).toEqual({ text: "", pageBreak: "after" });
+    const header = doc.header as Chrome;
+    const footer = doc.footer as Chrome;
+    expect((header(1, 3) as { text?: string }).text).toBe("");
+    expect((footer(1, 3) as { text?: string }).text).toBe("");
+    expect(collectAllText(header(2, 3))).toContain("2/3");
+    expect(collectAllText(footer(2, 3))).toContain("Page 2 of 3");
+  });
+
+  it("is off by default - page 1 is body and carries the header", () => {
+    const doc = buildCpPdf({ ...defaultArgs(), projectName: "My project" });
+    expect((doc.content as Content[])[0]).not.toEqual({
+      text: "",
+      pageBreak: "after",
+    });
+    expect(collectAllText((doc.header as Chrome)(1, 3))).toContain(
+      "My project",
+    );
+  });
+});

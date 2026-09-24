@@ -31,6 +31,7 @@ import {
   CP_CHROME_MARGINS,
   CP_PAGE_MARGINS_PT,
   makeCover,
+  makeCoverPlaceholder,
   makeFooter,
   makeHeader,
   type PdfChromeArgs,
@@ -75,9 +76,9 @@ export interface BuildCpPdfArgs {
   companyName: string;
   /** Cover page on/off. Defaults to true. */
   includeCoverPage?: boolean;
-  /** Add this many pages to the displayed page numbers (1 when a custom
-   *  cover is prepended after rendering). Default 0. */
-  pageNumberOffset?: number;
+  /** Leave page 1 blank for a custom cover put on after rendering (see
+   *  makeCoverPlaceholder). Ignored when includeCoverPage is true. */
+  reserveCoverPage?: boolean;
   /** Group headers for this plan, pre-sorted by `headerNo`. */
   headers: ControlPlanHeaderData[];
   /** All rows for this plan, pre-sorted by `sectionNo`. */
@@ -175,7 +176,7 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
     dateText,
     companyName,
     includeCoverPage = true,
-    pageNumberOffset = 0,
+    reserveCoverPage = false,
     headers,
     rows,
   } = args;
@@ -214,7 +215,10 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
         orientation: "landscape",
       }),
     );
+  } else if (reserveCoverPage) {
+    content.push(...makeCoverPlaceholder());
   }
+  const firstPageIsCover = includeCoverPage || reserveCoverPage;
 
   // Title block ---------------------------------------------------------
   content.push({ text: fullTitle, style: "title" });
@@ -250,18 +254,8 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
     // footer also get the matching narrower set so they stay aligned
     // with the CP's body text.
     pageMargins: CP_PAGE_MARGINS_PT,
-    header: makeHeader(
-      chromeArgs,
-      CP_CHROME_MARGINS,
-      includeCoverPage,
-      pageNumberOffset,
-    ),
-    footer: makeFooter(
-      chromeArgs,
-      CP_CHROME_MARGINS,
-      includeCoverPage,
-      pageNumberOffset,
-    ),
+    header: makeHeader(chromeArgs, CP_CHROME_MARGINS, firstPageIsCover),
+    footer: makeFooter(chromeArgs, CP_CHROME_MARGINS, firstPageIsCover),
     content,
     defaultStyle: { fontSize: 8 },
     styles: {

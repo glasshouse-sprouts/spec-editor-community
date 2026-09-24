@@ -489,3 +489,51 @@ describe("buildPdfExportJobs — every kind of tick reaches the planner", () => 
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Project name in filenames (Task 150, phase C)
+// ---------------------------------------------------------------------------
+
+describe("buildPdfExportJobs — project name is safe in every filename", () => {
+  // Card 150 suspected that the whole-project filename
+  // (`${projectName}.pdf`) skipped `sanitiseFilePart`. It does not: the
+  // name is sanitised once, at the top of buildPdfExportJobs, before
+  // any mode sees it. This pins that, so a refactor that moves the
+  // sanitising into the per-mode builders cannot miss one. A "/" left
+  // in makes the OS read the name as a folder that does not exist, and
+  // the write fails (see sanitiseFilePart's own comment).
+  const unsafeName = 'Glas/huset: "A"';
+  const withName = (): FilePayload => {
+    const data = payload();
+    return {
+      ...data,
+      project: { ...data.project!, name: unsafeName },
+    } as FilePayload;
+  };
+
+  for (const mode of ALL_MODES) {
+    it(`${mode}: no path separator or reserved character from the project name`, () => {
+      const jobs = buildPdfExportJobs({
+        data: withName(),
+        tree: tree(),
+        selection: selection({ workAreas: [10], bdbs: [100], cps: [300] }),
+        groupBy: mode,
+      });
+      expect(jobs.length).toBeGreaterThan(0);
+      for (const job of jobs) {
+        expect(job.filename.startsWith("Glas_huset_ _A_")).toBe(true);
+        expect(job.filename).not.toMatch(/[<>:"/\\|?*]/);
+      }
+    });
+  }
+
+  it("perProject: the composite file is named after the sanitised project", () => {
+    const jobs = buildPdfExportJobs({
+      data: withName(),
+      tree: tree(),
+      selection: selection({ bdbs: [100] }),
+      groupBy: "perProject",
+    });
+    expect(jobs[0]!.filename).toBe("Glas_huset_ _A_.pdf");
+  });
+});

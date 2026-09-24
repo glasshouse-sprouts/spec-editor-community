@@ -373,10 +373,10 @@ function isBlankRow(row: ControlPlanRowData): boolean {
 /**
  * True when a Control Plan contains at least one row with any
  * user-entered data (anywhere — at least one populated column OR a
- * non-zero controlType). Exported because both the GUI Word path
- * (`useDocxExport`) and the MCP Word path (`useMcpExportBridge`) use
- * this to silently skip empty CPs — mirroring the PDF flow's
- * behaviour. A CP is "empty" when:
+ * non-zero controlType). Used by the MCP Word path
+ * (`useMcpExportBridge`) to skip empty CPs in bulk exports. The GUI
+ * Word path stopped using it in Task 151: a ticked control plan is
+ * always exported, as the PDF export does. A CP is "empty" when:
  *   - `cpRowsByPlan[cpId]` is missing or zero-length, OR
  *   - every row in it satisfies `isBlankRow`.
  */

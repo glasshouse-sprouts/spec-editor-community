@@ -1,6 +1,6 @@
 {
   "name": "@molio2-editor/core",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Core file-format logic for Molio 2.0 .moliospec files. No UI, no Electron.",
   "type": "module",
