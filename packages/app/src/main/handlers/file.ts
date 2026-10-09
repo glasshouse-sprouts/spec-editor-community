@@ -6,12 +6,11 @@
  */
 
 import { app, dialog, ipcMain } from "electron";
-import { copyFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   applyEdits,
-  createContract,
   moveBdbToVirtualWorkSpec,
   openMoliospec,
   planMigration,
@@ -30,6 +29,7 @@ import {
   type SaveFileResult,
   type SectionData,
 } from "../../shared/ipc.js";
+import type { ContractDefaultRow } from "../../shared/defaultsCsv.js";
 import {
   recordDirtyChanged,
   recordFileOpened,
@@ -41,7 +41,9 @@ import {
   disarmFileWatch,
   endSelfWrite,
   noteSelfWrite,
+  saveAsSelfWrite,
 } from "../fileWatcher.js";
+import { createNewProjectFile } from "../newProjectFile.js";
 import { controlPlanIsEmpty } from "../../shared/cpEmpty.js";
 import { readContractDefaults } from "./defaults.js";
 import { setDirty } from "./dirtyState.js";
@@ -49,7 +51,6 @@ import {
   groupControlPlanHeaders,
   groupControlPlanRows,
   safeMtimeMs,
-  withHandleForWrite,
 } from "./shared.js";
 
 ipcMain.handle(Channels.openFileDialog, async () => {
@@ -654,33 +655,34 @@ ipcMain.handle(
       return { kind: "cancelled" };
     }
     try {
-      // Plain byte copy: the bundled file is already a valid
-      // gzipped SQLite with empty content tables + a placeholder
-      // project row. The renderer follows up with `openFile(path)`
-      // for the same load path it uses for any other file.
-      copyFileSync(blank, result.filePath);
-      // #250 — seed the user's default contracts into the fresh project so
-      // a new project starts with the standard "fagentrepriser". Reads the
-      // user's editable CSV (or the shipped default on first run). Failure
-      // here is non-fatal: the empty project is still valid.
+      // Task 159: NOT a byte copy any more. A copy carried the
+      // template's project GUID, creation date and system name into
+      // every new project. createNewProjectFile opens the template,
+      // gives the project its own identity, seeds the default
+      // contracts (#250) and writes the result in one atomic save.
+      // The renderer follows up with `openFile(path)` as before.
+      let contracts: ContractDefaultRow[] = [];
       try {
-        const defaults = readContractDefaults();
-        if (defaults.length > 0) {
-          await withHandleForWrite(result.filePath, (h) => {
-            for (const row of defaults) {
-              createContract(h, {
-                contractCode: row.code,
-                contractName: row.name,
-              });
-            }
-          });
-        }
+        contracts = readContractDefaults();
       } catch (err) {
         console.error(
-          "[main] createEmptyProject: seeding default contracts failed:",
+          "[main] createEmptyProject: reading default contracts failed:",
           err,
         );
       }
+      await createNewProjectFile(blank, result.filePath, {
+        // Same source as the menu bar, the window title and the About
+        // panel. The Community export renames it, so the field follows
+        // the edition without a second string to keep in step.
+        createdBySystem: app.getName(),
+        contracts,
+        save: saveAsSelfWrite,
+        onSeedError: (err) =>
+          console.error(
+            "[main] createEmptyProject: seeding default contracts failed:",
+            err,
+          ),
+      });
       return { kind: "ok", path: result.filePath };
     } catch (err) {
       return {

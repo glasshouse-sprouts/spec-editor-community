@@ -301,6 +301,18 @@ export function mergeSavedEdits(
           "approvedBy",
           w.approvedBy,
         ) as string | null,
+        // Task 155 - the fiksdato lives inside `refs`, not at the
+        // top level, so it is spread separately. The GUID beside it
+        // is never edited and is carried through untouched.
+        refs: {
+          ...next.refs,
+          referencelistAreaDate: getEffectiveWorkSpecField(
+            edits,
+            w.id,
+            "referencelistAreaDate",
+            w.refs.referencelistAreaDate,
+          ) as string | null,
+        },
       };
     }
     return next;
@@ -357,6 +369,16 @@ export function mergeSavedEdits(
         "approvedBy",
         b.approvedBy,
       ) as string | null,
+      // Task 155 - see the note on the work-area branch above.
+      refs: {
+        ...b.refs,
+        referencelistAreaDate: getEffectiveBdbField(
+          edits,
+          b.id,
+          "referencelistAreaDate",
+          b.refs.referencelistAreaDate,
+        ) as string | null,
+      },
     };
   });
 

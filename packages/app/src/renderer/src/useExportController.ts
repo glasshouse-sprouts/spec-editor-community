@@ -25,6 +25,7 @@ import { useVersionCompareEngine } from "./VersionCompareContext.js";
 import { useCoverEngine, type CoverActiveTemplate } from "./coverContext.js";
 import { readCompactView } from "./compactViewPrefs.js";
 import { prefStore } from "./prefs.js";
+import { companyNameForPdf } from "./companyNamePrefs.js";
 import type { VersionCompareFormat } from "./compare/versionCompareFormat.js";
 import { buildBytesFor, buildTargets, resolveTarget } from "./ExportCard.js";
 import { buildBytesForCompositeJob } from "./executeCompositeExport.js";
@@ -232,6 +233,8 @@ export function useExportController(
       cover: coverActive
         ? { active: coverActive, apply: coverEngine.applyCover }
         : undefined,
+      // Task 185: the "Firmanavn" app setting, read at export time.
+      companyName: companyNameForPdf(prefStore()),
     };
     if (job.kind === "single") {
       const row = resolveTarget(targets, job.target);
@@ -342,28 +345,15 @@ export function useExportController(
             projectName: data.project?.name ?? null,
             referenceLabel:
               referenceFile.path.split(/[/\\]/).pop() ?? referenceFile.path,
-            companyName: "Company name",
+            // Task 183: bygherre in the running header.
+            builder: data.project?.builder ?? null,
+            // Task 185: company name from the app setting; empty -> empty
+            // cell, never a placeholder.
+            companyName: companyNameForPdf(prefStore()),
             includeCoverPage,
             revisions,
-            strings: {
-              documentTitle: tStatic("versionSummary.documentTitle"),
-              referenceLabel: tStatic("versionSummary.referenceLabel"),
-              noChangesText: tStatic("versionSummary.noChanges"),
-              sectionsHeader: tStatic("versionSummary.sectionsHeader"),
-              cpRowsHeader: tStatic("versionSummary.cpRowsHeader"),
-              attachmentsHeader: tStatic("versionSummary.attachmentsHeader"),
-              kindLabel: {
-                added: tStatic("versionSummary.kind.added"),
-                deleted: tStatic("versionSummary.kind.deleted"),
-                modified: tStatic("versionSummary.kind.modified"),
-              },
-              wholeSpecCount: (count) =>
-                tStatic("versionSummary.wholeSpecCount", { count }),
-              cpSlotLabel: {
-                design: tStatic("versionSummary.cpSlot.design"),
-                production: tStatic("versionSummary.cpSlot.production"),
-              },
-            },
+            // Task 186: no strings - the summary is always Danish, and the
+            // builder holds its own texts like the other PDF builders.
           });
           const projectFileBase =
             (data.project?.name ?? "project").trim().replace(/\s+/g, "-") ||
@@ -461,6 +451,10 @@ export function useExportController(
         },
         onExportDocx,
         status,
+        // Task 174: the cover editor opened from here binds its pick to
+        // this project. The modal is only opened with a file loaded; ""
+        // matches no project, so a pick made without one applies nowhere.
+        moliospecPath: data?.path ?? "",
       })
     : null;
 

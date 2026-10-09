@@ -9,7 +9,13 @@
 import { useCallback, useState } from "react";
 
 import type { FilePayload } from "../../../shared/ipc.js";
-import { type EditMap, getEffectiveBdbField, setBdbField } from "../edits.js";
+import {
+  type EditMap,
+  getEffectiveBdbField,
+  getEffectiveProjectField,
+  getEffectiveWorkSpecField,
+  setBdbField,
+} from "../edits.js";
 import { findBdbById } from "../loaded.js";
 import { isVirtualWorkSpecInfo } from "../pfbbMigration.js";
 
@@ -26,6 +32,8 @@ export interface EditBdbDialogState {
   originalCreatedByOrganization: string | null;
   originalReviewedBy: string | null;
   originalApprovedBy: string | null;
+  /** Task 155 - the reference-list date (fiksdato) on this BDB. */
+  originalReferencelistAreaDate: string | null;
   name: string;
   isPfbb: boolean;
   revision: string;
@@ -35,6 +43,14 @@ export interface EditBdbDialogState {
   createdByOrganization: string;
   reviewedBy: string;
   approvedBy: string;
+  /** Task 155 - editable now. Blank means "inherit". */
+  referencelistAreaDate: string;
+  /** Task 155 - what a blank field inherits: the parent work area's
+   *  date if it has one, otherwise the project's. */
+  inheritedReferencelistDate: {
+    date: string;
+    source: "project" | "workArea";
+  } | null;
   locked: {
     molioSpecRevisionNo: string | null;
     molioSpecRevisionDate: string | null;
@@ -50,8 +66,9 @@ export interface EditBdbDialogState {
      *  read-only. Sourced from `BdbInfo.refs`. */
     molioSpecGuid: string | null;
     molioSpecRevisionGuid: string | null;
+    /** Task 155 - the GUID stays locked; only the date beside it
+     *  became editable. */
     referencelistArea: string | null;
-    referencelistAreaDate: string | null;
   };
 }
 
@@ -108,6 +125,7 @@ export function useEditBdbDialog({
         originalCreatedByOrganization: b.createdByOrganization,
         originalReviewedBy: b.reviewedBy,
         originalApprovedBy: b.approvedBy,
+        originalReferencelistAreaDate: b.refs.referencelistAreaDate,
         name: (effStr("name", b.name) as string) ?? b.name,
         isPfbb: effIsPfbb === 1,
         revision: effStr("revision", b.revision) ?? "",
@@ -118,6 +136,37 @@ export function useEditBdbDialog({
           effStr("createdByOrganization", b.createdByOrganization) ?? "",
         reviewedBy: effStr("reviewedBy", b.reviewedBy) ?? "",
         approvedBy: effStr("approvedBy", b.approvedBy) ?? "",
+        referencelistAreaDate:
+          effStr("referencelistAreaDate", b.refs.referencelistAreaDate) ?? "",
+        // Rule 4, one level up: the parent work area if it has its own
+        // date, otherwise the project. Both read through the edit map,
+        // so an unsaved change at either level is what the user is
+        // told they will inherit.
+        inheritedReferencelistDate: (() => {
+          const wsDate = currentWs
+            ? (
+                (getEffectiveWorkSpecField(
+                  edits,
+                  currentWs.id,
+                  "referencelistAreaDate",
+                  currentWs.refs.referencelistAreaDate,
+                ) ?? "") as string
+              ).trim()
+            : "";
+          if (wsDate !== "") {
+            return { date: wsDate, source: "workArea" as const };
+          }
+          const projectDate = (
+            (getEffectiveProjectField(
+              edits,
+              "molioReferencelistDate",
+              state.data?.project?.moliioReferencelistDate ?? null,
+            ) ?? "") as string
+          ).trim();
+          return projectDate === ""
+            ? null
+            : { date: projectDate, source: "project" as const };
+        })(),
         locked: {
           molioSpecRevisionNo: b.locked.molioSpecRevisionNo,
           molioSpecRevisionDate: b.locked.molioSpecRevisionDate,
@@ -137,7 +186,6 @@ export function useEditBdbDialog({
           molioSpecGuid: b.refs.basisGuid,
           molioSpecRevisionGuid: b.refs.basisRevisionGuid,
           referencelistArea: b.refs.referencelistArea,
-          referencelistAreaDate: b.refs.referencelistAreaDate,
         },
       });
     },
@@ -215,6 +263,13 @@ export function useEditBdbDialog({
           "approvedBy",
           blankToNull(d.approvedBy),
           d.originalApprovedBy,
+        );
+        next = setBdbField(
+          next,
+          d.id,
+          "referencelistAreaDate",
+          blankToNull(d.referencelistAreaDate),
+          d.originalReferencelistAreaDate,
         );
         return next;
       });

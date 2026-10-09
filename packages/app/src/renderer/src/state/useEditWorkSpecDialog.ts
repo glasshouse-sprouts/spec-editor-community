@@ -15,6 +15,7 @@ import { useCallback, useState } from "react";
 import type { FilePayload } from "../../../shared/ipc.js";
 import {
   type EditMap,
+  getEffectiveProjectField,
   getEffectiveWorkSpecField,
   setWorkSpecField,
 } from "../edits.js";
@@ -32,6 +33,8 @@ export interface EditWorkSpecDialogState {
   originalCreatedByOrganization: string | null;
   originalReviewedBy: string | null;
   originalApprovedBy: string | null;
+  /** Task 155 - the reference-list date (fiksdato) on this work area. */
+  originalReferencelistAreaDate: string | null;
   // Form values (always strings for <input> bindings).
   workAreaCode: string;
   workAreaName: string;
@@ -43,6 +46,17 @@ export interface EditWorkSpecDialogState {
   createdByOrganization: string;
   reviewedBy: string;
   approvedBy: string;
+  /** Task 155 - editable now. Blank means "inherit". */
+  referencelistAreaDate: string;
+  /**
+   * Task 155 - what a blank field inherits. For a work area that is
+   * always the project, so `source` is "project" whenever this is
+   * set; the wider type is shared with the BDB dialog.
+   */
+  inheritedReferencelistDate: {
+    date: string;
+    source: "project" | "workArea";
+  } | null;
   // Locked (read-only).
   locked: {
     molioSpecRevisionNo: string | null;
@@ -55,8 +69,10 @@ export interface EditWorkSpecDialogState {
     molioSpecRevisionGuid: string | null;
     paradigmGuid: string | null;
     paradigmRevisionGuid: string | null;
+    /** Task 155 - the GUID stays locked; only the date beside it
+     *  became editable. It is the base revision's own id, not a
+     *  choice the user makes. */
     referencelistArea: string | null;
-    referencelistAreaDate: string | null;
   };
 }
 
@@ -121,6 +137,24 @@ export function useEditWorkSpecDialog({
           effStr("createdByOrganization", ws.createdByOrganization) ?? "",
         reviewedBy: effStr("reviewedBy", ws.reviewedBy) ?? "",
         approvedBy: effStr("approvedBy", ws.approvedBy) ?? "",
+        originalReferencelistAreaDate: ws.refs.referencelistAreaDate,
+        referencelistAreaDate:
+          effStr("referencelistAreaDate", ws.refs.referencelistAreaDate) ?? "",
+        // The level above a work area is the project. Read through
+        // the edit map so an unsaved project-date change is what the
+        // user is told they will inherit.
+        inheritedReferencelistDate: (() => {
+          const projectDate = (
+            (getEffectiveProjectField(
+              edits,
+              "molioReferencelistDate",
+              state.data?.project?.moliioReferencelistDate ?? null,
+            ) ?? "") as string
+          ).trim();
+          return projectDate === ""
+            ? null
+            : { date: projectDate, source: "project" as const };
+        })(),
         locked: {
           molioSpecRevisionNo: ws.locked.molioSpecRevisionNo,
           molioSpecRevisionDate: ws.locked.molioSpecRevisionDate,
@@ -129,7 +163,6 @@ export function useEditWorkSpecDialog({
           paradigmGuid: ws.refs.paradigmGuid,
           paradigmRevisionGuid: ws.refs.paradigmRevisionGuid,
           referencelistArea: ws.refs.referencelistArea,
-          referencelistAreaDate: ws.refs.referencelistAreaDate,
         },
       });
     },
@@ -224,6 +257,13 @@ export function useEditWorkSpecDialog({
           "approvedBy",
           blankToNull(d.approvedBy),
           d.originalApprovedBy,
+        );
+        next = setWorkSpecField(
+          next,
+          d.id,
+          "referencelistAreaDate",
+          blankToNull(d.referencelistAreaDate),
+          d.originalReferencelistAreaDate,
         );
         return next;
       });

@@ -12,27 +12,24 @@
  *     needed, no DOM needed).
  *   - As of 7.3b the running header follows the Danish BIPS B1000
  *     template (Molio 2.0's predecessor): two columns, four rows,
- *     horizontal rule underneath. Left column = spec context
- *     (Bygherre placeholder, Entrepriseform placeholder, work-area
- *     name, BDB name or literal "Arbejdsbeskrivelse"). Right column =
- *     project name (bold top), then Dato / Rev.dato / Side.
+ *     horizontal rule underneath. Left column = spec context (the
+ *     project's bygherre, the entreprise, work-area name, BDB name or
+ *     the work area's own type). Right column = project name (bold
+ *     top), then Dato / Rev.dato / Side.
  *   - The footer stays simple: a horizontal rule with ~one line of
- *     breathing room above it, then "Company name" on the left and
- *     "Page N of M" on the right.
- *   - "Company name" is a literal placeholder for now. Icebox #119
- *     tracks the decision on where it eventually gets stored.
+ *     breathing room above it, then the company name on the left. The
+ *     page number lives in the header ("Side x/y"), so the footer does
+ *     not repeat it (Task 183).
+ *   - Task 183: no placeholder text may reach a PDF. A value that is
+ *     missing (no bygherre, no entreprise, no company name) prints as
+ *     an empty cell. The company name has no source yet (Task 185), so
+ *     callers pass null today.
+ *   - PDF text is always Danish, also when the app runs in English, so
+ *     the labels are written here in Danish and not in the i18n
+ *     catalogues (Task 183).
  */
 
 import type { Content } from "pdfmake/interfaces";
-
-/**
- * Danish placeholder strings. Kept here so there's exactly one source
- * of truth when Tore picks a client name / contract form for real
- * (each will graduate out of its placeholder into a proper data
- * field; for now the header just prints the bracketed text).
- */
-export const BYGHERRE_PLACEHOLDER = "[Bygherre]";
-export const ENTREPRISEFORM_PLACEHOLDER = "[Entrepriseform]";
 
 /* ------------------------------------------------------------------ */
 /*  Standard page margins (Tore's spec, 2026-05-12)                   */
@@ -150,29 +147,40 @@ export const CP_PAGE_MARGINS_PT: [number, number, number, number] = [
  * richer superset (see `PdfCoverArgs` below).
  *
  *   - `projectName`          → top-right bold cell.
- *   - `workAreaName`         → row-3 left. For work-area PDFs this is
- *                              the work area's own name; for BDBs it's
+ *   - `builder`              → top-left bold cell: the project's
+ *                              bygherre (`project.builder`). Null or
+ *                              blank → empty cell (Task 183).
+ *   - `contractLabel`        → row-2 left: the entreprise ("E11 -
+ *                              Belægning"), the same value the cover
+ *                              prints. Null → empty cell (Task 183).
+ *   - `workAreaName`         → row-3 left, as "<code> <name>" (Task
+ *                              145). For work-area PDFs this is
+ *                              the work area itself; for BDBs it's
  *                              the parent work area; for CPs the owner
  *                              work area. Null → blank cell.
  *   - `documentLabel`        → row-4 left. For BDBs this is the BDB
  *                              name; for work-area PDFs it's the
- *                              literal "Arbejdsbeskrivelse"; for CPs
+ *                              work area's own type (Task 147); for CPs
  *                              it's the CP title.
  *   - `dateText`             → right column, row 2. Expected format is
  *                              whatever the caller decides; we don't
  *                              reformat.
  *   - `revisionDateText`     → right column, row 3. Null → blank value
  *                              (the "Rev.dato :" label still prints).
- *   - `companyName`          → footer left. Until #119 lands this is
- *                              always the literal "Company name".
+ *   - `companyName`          → footer left (and the foot of the
+ *                              built-in cover). No source exists yet
+ *                              (Task 185), so callers pass null and the
+ *                              cell stays empty.
  */
 export interface PdfChromeArgs {
   projectName: string | null;
+  builder: string | null;
+  contractLabel: string | null;
   workAreaName: string | null;
   documentLabel: string;
   dateText: string;
   revisionDateText: string | null;
-  companyName: string;
+  companyName: string | null;
 }
 
 /**
@@ -202,8 +210,8 @@ export type ChromeFn = (
  * 3-column row so the colons line up):
  *
  *     ┌──────────────────────────────┬────────────────────────────┐
- *     │ Bygherre (bold)              │ {projectName} (bold, right)│
- *     │ [Entrepriseform]             │ Dato     :  {date}         │
+ *     │ {builder} (bold)             │ {projectName} (bold, right)│
+ *     │ {contractLabel}              │ Dato     :  {date}         │
  *     │ {workAreaName}               │ Rev.dato :  {revDate}      │
  *     │ {documentLabel}              │ Side     :  {N}/{M}        │
  *     └──────────────────────────────┴────────────────────────────┘
@@ -219,6 +227,8 @@ export function makeHeader(
   skipFirstPage = true,
 ): ChromeFn {
   const project = (args.projectName ?? "").trim();
+  const builder = (args.builder ?? "").trim();
+  const contract = (args.contractLabel ?? "").trim();
   const workArea = (args.workAreaName ?? "").trim();
   const docLabel = (args.documentLabel ?? "").trim();
   const revDate = (args.revisionDateText ?? "").trim();
@@ -251,7 +261,7 @@ export function makeHeader(
             widths: ["*", "*"],
             body: [
               [
-                cellBold(BYGHERRE_PLACEHOLDER),
+                cellBold(builder),
                 { text: project, bold: true, alignment: "right" as const },
               ],
             ],
@@ -274,10 +284,7 @@ export function makeHeader(
           table: {
             widths: ["*", META_RIGHT_COL_WIDTH],
             body: [
-              [
-                cell(ENTREPRISEFORM_PLACEHOLDER),
-                metaCell("Dato", args.dateText),
-              ],
+              [cell(contract), metaCell("Dato", args.dateText)],
               [cell(workArea), metaCell("Rev.dato", revDate)],
               [cell(docLabel), metaCell("Side", `${currentPage}/${pageCount}`)],
             ],
@@ -323,7 +330,7 @@ function cell(text: string): Content {
   return { text, color: "#444" };
 }
 
-/** Bold left-column cell (used for the "Bygherre" label). */
+/** Bold left-column cell (used for the bygherre). */
 function cellBold(text: string): Content {
   return { text, bold: true };
 }
@@ -366,7 +373,7 @@ function metaCell(label: string, value: string): Content {
 }
 
 // ---------------------------------------------------------------------------
-// Running footer — company name + page N/M under a horizontal rule
+// Running footer — company name under a horizontal rule
 // ---------------------------------------------------------------------------
 
 /**
@@ -374,7 +381,11 @@ function metaCell(label: string, value: string): Content {
  *
  *     (blank line of breathing room)
  *     ────────────────────────────────────────── (hline)
- *     Company name                    Page N of M
+ *     {companyName}
+ *
+ * No page number here: the header already prints "Side x/y" (Task 183).
+ * An empty company name still draws the rule, so the page layout does
+ * not shift once Task 185 supplies a real name.
  *
  * Hidden on page 1 so the cover page stays clean.
  */
@@ -383,7 +394,8 @@ export function makeFooter(
   margins: PdfChromeMargins = STANDARD_CHROME_MARGINS,
   skipFirstPage = true,
 ): ChromeFn {
-  return (currentPage, pageCount) => {
+  const company = (args.companyName ?? "").trim();
+  return (currentPage) => {
     if (skipFirstPage && currentPage === 1) return { text: "" };
     return {
       // Caller-provided margins; defaults match the new 2026-05-12
@@ -396,19 +408,14 @@ export function makeFooter(
         margins.footerBottom,
       ],
       table: {
-        widths: ["*", "auto"],
+        widths: ["*"],
         body: [
           [
             {
               // Inherits the document's `defaultStyle.fontSize` so the
               // footer matches body text. (Was hard-coded to 8pt.)
-              text: args.companyName,
+              text: company,
               color: "#666",
-            },
-            {
-              text: `Page ${currentPage} of ${pageCount}`,
-              color: "#666",
-              alignment: "right",
             },
           ],
         ],
@@ -433,10 +440,18 @@ export function makeFooter(
 
 /**
  * Inputs for the cover-page stub. Extends `PdfChromeArgs` with the
- * big title block + the contract label (contract appears only on the
- * cover; the BIPS running header has no slot for it).
+ * big title block. The contract label (entreprise) comes from
+ * `PdfChromeArgs` - the cover and the running header print the same
+ * value (Task 183).
  */
 export interface PdfCoverArgs extends PdfChromeArgs {
+  /**
+   * The document type, on its own small grey line ABOVE the title - only
+   * the value, no label (Task 147). Required so every builder has to say
+   * what it is; see `documentTypes.ts` for the values. An empty string
+   * prints no line.
+   */
+  documentType: string;
   /** Headline (big). Usually the spec's title. */
   title: string;
   /** Optional second line under the title. */
@@ -444,8 +459,6 @@ export interface PdfCoverArgs extends PdfChromeArgs {
   /** Optional revision tag — printed below the subtitle. */
   revision?: string | null;
   revisionDate?: string | null;
-  /** Contract label shown on the cover (e.g. "01 - Fagentreprise"). */
-  contractLabel?: string | null;
   /**
    * Page orientation. Vertical spacers are tuned per-orientation so
    * the cover fits on one page in both A4 portrait (~842pt tall) and
@@ -462,6 +475,7 @@ export interface PdfCoverArgs extends PdfChromeArgs {
  */
 export function makeCover(args: PdfCoverArgs): Content[] {
   const { title, subtitle, revision, revisionDate } = args;
+  const documentType = (args.documentType ?? "").trim();
   const landscape = args.orientation === "landscape";
 
   // Vertical spacers are the only thing that changes with orientation.
@@ -473,7 +487,20 @@ export function makeCover(args: PdfCoverArgs): Content[] {
 
   const content: Content[] = [];
 
-  content.push({ text: "", margin: [0, topSpacer, 0, 0] });
+  // Task 147: the document type sits in the top spacer, so the title and
+  // everything under it stay exactly where they were. A 10pt line is
+  // ~12pt tall plus its 4pt bottom margin.
+  const docTypeHeight = documentType ? 16 : 0;
+  content.push({ text: "", margin: [0, topSpacer - docTypeHeight, 0, 0] });
+
+  if (documentType) {
+    content.push({
+      text: documentType,
+      fontSize: 10,
+      color: "#666",
+      margin: [0, 0, 0, 4],
+    });
+  }
 
   content.push({
     text: title,
@@ -492,7 +519,7 @@ export function makeCover(args: PdfCoverArgs): Content[] {
 
   const revBits: string[] = [];
   if (revision) revBits.push(`Revision: ${revision}`);
-  if (revisionDate) revBits.push(`Revision date: ${revisionDate}`);
+  if (revisionDate) revBits.push(`Revisionsdato: ${revisionDate}`);
   if (revBits.length > 0) {
     content.push({
       text: revBits.join("   ·   "),
@@ -522,8 +549,10 @@ export function makeCover(args: PdfCoverArgs): Content[] {
   }
 
   content.push({ text: "", margin: [0, bottomSpacer, 0, 0] });
+  // Task 183: an empty node (not a placeholder) when there is no company
+  // name. The node is kept either way because it carries the page break.
   content.push({
-    text: args.companyName,
+    text: (args.companyName ?? "").trim(),
     fontSize: 10,
     color: "#777",
     pageBreak: "after",

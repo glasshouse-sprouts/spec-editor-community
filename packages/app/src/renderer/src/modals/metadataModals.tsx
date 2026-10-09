@@ -19,7 +19,84 @@ import { CustomDataAccordion } from "../CustomDataAccordion.js";
 import type { EffectiveCustomDataEntry } from "../edits.js";
 import { useT } from "../i18n/i18n.js";
 import { computePfbbToggleHint } from "../pfbbMigration.js";
+import { isUnreadableDate } from "../referencelistDates.js";
 import { useEscToClose } from "./useEscToClose.js";
+
+/**
+ * Task 155 - the reference-list date (fiksdato) field, used by all
+ * three metadata modals.
+ *
+ * Three things it has to get right:
+ *
+ *  - **A date picker, not free text.** `<input type="date">` gives
+ *    the picker and the `YYYY-MM-DD` shape for free, and the browser
+ *    will not let a malformed value out of it.
+ *  - **An unreadable stored value must not vanish.** A date input
+ *    cannot display "20. november 2024", so a value that is present
+ *    but unreadable gets a plain text box plus a warning instead.
+ *    Which box is shown is decided ONCE from the value the dialog
+ *    opened with, so the input never changes type mid-edit and steal
+ *    the user's focus. The project field was free text until this
+ *    change, so such values exist in real files.
+ *  - **Blank means inherit.** When the field is empty, the value it
+ *    will inherit is spelled out underneath.
+ *
+ * Why the inherited value is a line under the field and not the
+ * placeholder the prompt asked for: `<input type="date">` ignores
+ * `placeholder` in Chromium - the box shows its own date mask - so a
+ * placeholder would never have been read by anyone.
+ */
+export function ReferencelistDateField({
+  label,
+  value,
+  /** The value this dialog opened with. Decides picker vs text box. */
+  original,
+  /** What a blank field inherits, already resolved. */
+  inherited,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  original: string | null;
+  inherited: { date: string; source: "project" | "workArea" } | null;
+  onChange: (v: string) => void;
+}): JSX.Element {
+  const t = useT();
+  const unreadable = isUnreadableDate(original);
+  return (
+    <label className="modal__field">
+      <span className="modal__field-label">{label}</span>
+      <input
+        type={unreadable ? "text" : "date"}
+        className="modal__input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {unreadable && (
+        <span className="modal__field-warn">
+          {t("modal.referencelistDate.unreadable", { value: original ?? "" })}
+        </span>
+      )}
+      {value.trim() === "" && inherited && (
+        <span className="modal__field-hint">
+          {t("modal.referencelistDate.inherits", {
+            date: inherited.date,
+            source: t(
+              inherited.source === "workArea"
+                ? "modal.referencelistDate.fromWorkArea"
+                : "modal.referencelistDate.fromProject",
+            ),
+          })}
+        </span>
+      )}
+      {value.trim() === "" && !inherited && (
+        <span className="modal__field-hint">
+          {t("modal.referencelistDate.noneAnywhere")}
+        </span>
+      )}
+    </label>
+  );
+}
 
 export function EditProjectModal({
   dialog,
@@ -33,6 +110,7 @@ export function EditProjectModal({
   onChangeProjectNumber,
   onChangeBuilder,
   onChangeMolioReferencelistDate,
+  onWriteDateIntoSpecs,
 }: {
   dialog: {
     projectGuid: string;
@@ -40,6 +118,10 @@ export function EditProjectModal({
     projectNumber: string;
     builder: string;
     molioReferencelistDate: string;
+    /** Task 155 - the value the dialog opened with, so the field can
+     *  tell a readable date from free text left over from before
+     *  this field was validated. */
+    originalMolioReferencelistDate: string | null;
   };
   /** Slice 10I.b — effective `custom_data` entries (disk rows with
    *  any pending edits folded in). Optional so tests / old callers
@@ -55,6 +137,12 @@ export function EditProjectModal({
   onChangeProjectNumber: (v: string) => void;
   onChangeBuilder: (v: string) => void;
   onChangeMolioReferencelistDate: (v: string) => void;
+  /** Task 184 - confirm the dialog and then offer to write the date
+   *  into the "Gældende dato for referencer" section of EVERY
+   *  description, also when the date itself did not change. Without
+   *  it a file whose date was set before this feature can never be
+   *  brought in step. Optional so tests / old callers need not stub it. */
+  onWriteDateIntoSpecs?: () => void;
 }): JSX.Element {
   useEscToClose(onCancel);
   const t = useT();
@@ -121,20 +209,30 @@ export function EditProjectModal({
               placeholder={t("modal.editProject.builderPlaceholder")}
             />
           </label>
-          <label className="modal__field">
-            <span className="modal__field-label">
-              {t("modal.editProject.molioReferencelistDateLabel")}
-            </span>
-            <input
-              type="text"
-              className="modal__input"
-              value={dialog.molioReferencelistDate}
-              onChange={(e) => onChangeMolioReferencelistDate(e.target.value)}
-              placeholder={t(
-                "modal.editProject.molioReferencelistDatePlaceholder",
-              )}
-            />
-          </label>
+          <ReferencelistDateField
+            label={t("modal.editProject.molioReferencelistDateLabel")}
+            value={dialog.molioReferencelistDate}
+            original={dialog.originalMolioReferencelistDate}
+            // The project is the top level - there is nothing above it
+            // to inherit from.
+            inherited={null}
+            onChange={onChangeMolioReferencelistDate}
+          />
+          {onWriteDateIntoSpecs && (
+            <div className="modal__field">
+              <button
+                type="button"
+                className="modal__button"
+                onClick={onWriteDateIntoSpecs}
+                disabled={!canSubmit}
+              >
+                {t("modal.editProject.writeDateIntoSpecs")}
+              </button>
+              <span className="modal__field-hint">
+                {t("modal.editProject.writeDateIntoSpecsHint")}
+              </span>
+            </div>
+          )}
           {customData &&
             onSetCustomData &&
             onDeleteCustomData &&
@@ -159,6 +257,180 @@ export function EditProjectModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Task 155, rule 5 - the project's reference-list date just changed,
+ * and some work areas or BDBs carry a date of their own that differs
+ * from the new one.
+ *
+ * Those rows do NOT follow automatically: a date set on a row is a
+ * deliberate choice, and silently overwriting it would change which
+ * reference list that part of the project is built on. Rows with a
+ * blank date inherit and are never counted here, so the dialog only
+ * appears when there is a real decision to make.
+ */
+export function ReferencelistDateCascadeModal({
+  newDate,
+  workAreaCount,
+  bdbCount,
+  onKeepTheirs,
+  onUpdateAll,
+}: {
+  /** The new project date, or null when the field was cleared. */
+  newDate: string | null;
+  workAreaCount: number;
+  bdbCount: number;
+  onKeepTheirs: () => void;
+  onUpdateAll: () => void;
+}): JSX.Element {
+  useEscToClose(onKeepTheirs);
+  const t = useT();
+  return (
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="referencelist-cascade-title"
+    >
+      <div className="modal">
+        <h2 id="referencelist-cascade-title" className="modal__title">
+          {t("modal.referencelistCascade.title")}
+        </h2>
+        <p className="modal__body">
+          {newDate
+            ? t("modal.referencelistCascade.bodyWithDate", { date: newDate })
+            : t("modal.referencelistCascade.bodyCleared")}
+        </p>
+        <p className="modal__body">
+          {t("modal.referencelistCascade.counts", {
+            workAreas: workAreaCount,
+            bdbs: bdbCount,
+          })}
+        </p>
+        <div className="modal__actions">
+          <button
+            type="button"
+            className="modal__button"
+            onClick={onKeepTheirs}
+            autoFocus
+          >
+            {t("modal.referencelistCascade.keepTheirs")}
+          </button>
+          <button
+            type="button"
+            className="modal__button modal__button--primary"
+            onClick={onUpdateAll}
+          >
+            {t("modal.referencelistCascade.updateAll")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Task 184 - offer to rewrite the "Gældende dato for referencer" line in
+ * the descriptions whose applicable date changed (or, from the button in
+ * "Redigér projekt", in all of them).
+ *
+ * "Update" is the pre-selected answer (owner's decision): it has focus,
+ * so Enter applies it. Esc and "Leave the text" change nothing.
+ * Descriptions that were not touched are named, so the user can fix
+ * them by hand.
+ */
+export function ReferencelistDateTextModal({
+  workAreaCount,
+  bdbCount,
+  ambiguousNames,
+  unsafeNames,
+  onSkip,
+  onUpdate,
+}: {
+  workAreaCount: number;
+  bdbCount: number;
+  /** Descriptions with more than one matching section. */
+  ambiguousNames: readonly string[];
+  /** Descriptions whose date line holds more than the date. */
+  unsafeNames: readonly string[];
+  onSkip: () => void;
+  onUpdate: () => void;
+}): JSX.Element {
+  useEscToClose(onSkip);
+  const t = useT();
+  const hasUpdates = workAreaCount + bdbCount > 0;
+  return (
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="referencelist-date-text-title"
+    >
+      <div className="modal">
+        <h2 id="referencelist-date-text-title" className="modal__title">
+          {t("modal.referencelistDateText.title")}
+        </h2>
+        {hasUpdates ? (
+          <>
+            <p className="modal__body">
+              {t("modal.referencelistDateText.body", {
+                workAreas: workAreaCount,
+                bdbs: bdbCount,
+              })}
+            </p>
+            <p className="modal__body">
+              {t("modal.referencelistDateText.detail")}
+            </p>
+          </>
+        ) : (
+          <p className="modal__body">
+            {t("modal.referencelistDateText.nothing")}
+          </p>
+        )}
+        {ambiguousNames.length > 0 && (
+          <p className="modal__body">
+            {t("modal.referencelistDateText.ambiguous", {
+              names: ambiguousNames.join(", "),
+            })}
+          </p>
+        )}
+        {unsafeNames.length > 0 && (
+          <p className="modal__body">
+            {t("modal.referencelistDateText.unsafe", {
+              names: unsafeNames.join(", "),
+            })}
+          </p>
+        )}
+        <div className="modal__actions">
+          {hasUpdates ? (
+            <>
+              <button type="button" className="modal__button" onClick={onSkip}>
+                {t("modal.referencelistDateText.skip")}
+              </button>
+              <button
+                type="button"
+                className="modal__button modal__button--primary"
+                onClick={onUpdate}
+                autoFocus
+              >
+                {t("modal.referencelistDateText.update")}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="modal__button modal__button--primary"
+              onClick={onSkip}
+              autoFocus
+            >
+              {t("common.ok")}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -245,8 +517,20 @@ export function EditWorkSpecModal({
       paradigmGuid: string | null;
       paradigmRevisionGuid: string | null;
       referencelistArea: string | null;
-      referencelistAreaDate: string | null;
     };
+    /**
+     * Task 155 - the work area's own reference-list date (fiksdato),
+     * now editable. Moved out of the locked block; the GUID beside it
+     * (`locked.referencelistArea`) stays locked, because it is the
+     * base revision's own id and not a choice.
+     */
+    referencelistAreaDate: string;
+    originalReferencelistAreaDate: string | null;
+    /** What a blank field inherits - the project's date. */
+    inheritedReferencelistDate: {
+      date: string;
+      source: "project" | "workArea";
+    } | null;
   };
   onCancel: () => void;
   onConfirm: () => void;
@@ -261,7 +545,8 @@ export function EditWorkSpecModal({
       | "createdBy"
       | "createdByOrganization"
       | "reviewedBy"
-      | "approvedBy",
+      | "approvedBy"
+      | "referencelistAreaDate",
     value: string,
   ) => void;
 }): JSX.Element {
@@ -423,6 +708,13 @@ export function EditWorkSpecModal({
                 placeholder={t("modal.editWorkSpec.approvedByPlaceholder")}
               />
             </label>
+            <ReferencelistDateField
+              label={t("modal.editWorkSpec.referencelistAreaDateLabel")}
+              value={dialog.referencelistAreaDate}
+              original={dialog.originalReferencelistAreaDate}
+              inherited={dialog.inheritedReferencelistDate}
+              onChange={(v) => onChangeField("referencelistAreaDate", v)}
+            />
           </div>
 
           <LockedFieldsAccordion
@@ -454,10 +746,6 @@ export function EditWorkSpecModal({
               {
                 label: t("modal.editWorkSpec.locked.referencelistArea"),
                 value: dialog.locked.referencelistArea,
-              },
-              {
-                label: t("modal.editWorkSpec.locked.referencelistAreaDate"),
-                value: dialog.locked.referencelistAreaDate,
               },
             ]}
           />
@@ -519,8 +807,17 @@ export function EditBdbModal({
       molioSpecGuid: string | null;
       molioSpecRevisionGuid: string | null;
       referencelistArea: string | null;
-      referencelistAreaDate: string | null;
     };
+    /** Task 155 - the BDB's own reference-list date, now editable.
+     *  The GUID beside it stays locked. */
+    referencelistAreaDate: string;
+    originalReferencelistAreaDate: string | null;
+    /** What a blank field inherits: the work area's date if it has
+     *  one, otherwise the project's. */
+    inheritedReferencelistDate: {
+      date: string;
+      source: "project" | "workArea";
+    } | null;
   };
   onCancel: () => void;
   onConfirm: () => void;
@@ -533,7 +830,8 @@ export function EditBdbModal({
       | "createdBy"
       | "createdByOrganization"
       | "reviewedBy"
-      | "approvedBy",
+      | "approvedBy"
+      | "referencelistAreaDate",
     value: string,
   ) => void;
   onToggleIsPfbb: (next: boolean) => void;
@@ -726,6 +1024,13 @@ export function EditBdbModal({
                 placeholder={t("modal.editBdb.approvedByPlaceholder")}
               />
             </label>
+            <ReferencelistDateField
+              label={t("modal.editBdb.referencelistAreaDateLabel")}
+              value={dialog.referencelistAreaDate}
+              original={dialog.originalReferencelistAreaDate}
+              inherited={dialog.inheritedReferencelistDate}
+              onChange={(v) => onChangeField("referencelistAreaDate", v)}
+            />
           </div>
 
           <LockedFieldsAccordion
@@ -767,10 +1072,6 @@ export function EditBdbModal({
               {
                 label: t("modal.editBdb.locked.referencelistArea"),
                 value: dialog.locked.referencelistArea,
-              },
-              {
-                label: t("modal.editBdb.locked.referencelistAreaDate"),
-                value: dialog.locked.referencelistAreaDate,
               },
               {
                 label: t(

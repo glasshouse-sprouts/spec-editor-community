@@ -119,7 +119,9 @@ export type WorkSpecEditableField =
   | "revisionDate"
   | "issueDate"
   | "reviewedBy"
-  | "approvedBy";
+  | "approvedBy"
+  /** Task 155 - the work area's reference-list date (fiksdato). */
+  | "referencelistAreaDate";
 
 /**
  * BDB (construction_element_spec) fields the UI is allowed to edit
@@ -138,7 +140,9 @@ export type BdbEditableField =
   | "revisionDate"
   | "issueDate"
   | "reviewedBy"
-  | "approvedBy";
+  | "approvedBy"
+  /** Task 155 - the BDB's own reference-list date (fiksdato). */
+  | "referencelistAreaDate";
 
 /**
  * Control-plan fields the modal can edit (Slice 10F). Only two
@@ -275,6 +279,9 @@ export type EditPatch =
       issueDate?: string | null;
       reviewedBy?: string | null;
       approvedBy?: string | null;
+      /** Task 155 - fiksdato on the work area. `null` clears it,
+       *  which means "inherit from the project". */
+      referencelistAreaDate?: string | null;
     }
   | {
       kind: "bdbMeta";
@@ -289,6 +296,9 @@ export type EditPatch =
       issueDate?: string | null;
       reviewedBy?: string | null;
       approvedBy?: string | null;
+      /** Task 155 - fiksdato on the BDB. `null` clears it, which
+       *  means "inherit". */
+      referencelistAreaDate?: string | null;
     }
   | {
       kind: "cpMeta";
@@ -1034,7 +1044,8 @@ function wsMetaPatchIsClean(patch: WsMetaPatch): boolean {
     patch.revisionDate === undefined &&
     patch.issueDate === undefined &&
     patch.reviewedBy === undefined &&
-    patch.approvedBy === undefined
+    patch.approvedBy === undefined &&
+    patch.referencelistAreaDate === undefined
   );
 }
 
@@ -1096,7 +1107,8 @@ function shallowEqualWsMeta(a: WsMetaPatch, b: WsMetaPatch): boolean {
     a.revisionDate === b.revisionDate &&
     a.issueDate === b.issueDate &&
     a.reviewedBy === b.reviewedBy &&
-    a.approvedBy === b.approvedBy
+    a.approvedBy === b.approvedBy &&
+    a.referencelistAreaDate === b.referencelistAreaDate
   );
 }
 
@@ -1145,7 +1157,8 @@ function bdbMetaPatchIsClean(patch: BdbMetaPatch): boolean {
     patch.revisionDate === undefined &&
     patch.issueDate === undefined &&
     patch.reviewedBy === undefined &&
-    patch.approvedBy === undefined
+    patch.approvedBy === undefined &&
+    patch.referencelistAreaDate === undefined
   );
 }
 
@@ -1194,7 +1207,8 @@ function shallowEqualBdbMeta(a: BdbMetaPatch, b: BdbMetaPatch): boolean {
     a.revisionDate === b.revisionDate &&
     a.issueDate === b.issueDate &&
     a.reviewedBy === b.reviewedBy &&
-    a.approvedBy === b.approvedBy
+    a.approvedBy === b.approvedBy &&
+    a.referencelistAreaDate === b.referencelistAreaDate
   );
 }
 
@@ -2162,6 +2176,9 @@ export function toEditRequestList(map: EditMap): EditRequest[] {
       if (patch.issueDate !== undefined) req.issueDate = patch.issueDate;
       if (patch.reviewedBy !== undefined) req.reviewedBy = patch.reviewedBy;
       if (patch.approvedBy !== undefined) req.approvedBy = patch.approvedBy;
+      if (patch.referencelistAreaDate !== undefined) {
+        req.referencelistAreaDate = patch.referencelistAreaDate;
+      }
       out.push(req);
     } else if (patch.kind === "bdbMeta") {
       const req: Extract<EditRequest, { target: "bdbMetadata" }> = {
@@ -2180,6 +2197,9 @@ export function toEditRequestList(map: EditMap): EditRequest[] {
       if (patch.issueDate !== undefined) req.issueDate = patch.issueDate;
       if (patch.reviewedBy !== undefined) req.reviewedBy = patch.reviewedBy;
       if (patch.approvedBy !== undefined) req.approvedBy = patch.approvedBy;
+      if (patch.referencelistAreaDate !== undefined) {
+        req.referencelistAreaDate = patch.referencelistAreaDate;
+      }
       out.push(req);
     } else if (patch.kind === "cpMeta") {
       const req: Extract<EditRequest, { target: "cpMetadata" }> = {

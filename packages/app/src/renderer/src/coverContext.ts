@@ -40,6 +40,12 @@ export interface CoverExportContext {
   revisionDate: string | null;
   contractLabel: string | null;
   workAreaName: string | null;
+  /**
+   * The document type the built-in cover prints above the title (Task 147,
+   * B2.1), computed by the same functions in `pdf/documentTypes.ts`, so a
+   * custom cover's "Dokumenttype" field shows exactly the same value.
+   */
+  documentType: string;
 }
 
 /** Identifies the project so the engine can resolve folder/remembered. */
@@ -92,12 +98,24 @@ export interface CoverEngine {
     bodyPdfBytes: Uint8Array,
     ctx: CoverExportContext,
   ): Promise<Uint8Array>;
-  /** Open the in-app cover editor (Glasshouse). No-op in Community. */
-  openEditor(): void;
+  /**
+   * Open the in-app cover editor (Glasshouse) for the project at this
+   * `.moliospec` path. No-op in Community.
+   *
+   * Task 174: the engine lives as long as the window, and a window can
+   * open several projects one after another. A cover picked in the
+   * editor belongs to the project it was opened for, so the caller must
+   * say which project that is - the same `data.path` the export passes
+   * to `resolveActiveTemplate`.
+   */
+  openEditor(moliospecPath: string): void;
   /** Clear the active cover (back to disk resolution / standard cover). */
   clearTemplate(): void;
-  /** A short label for the active in-session template, or null if none. */
-  activeTemplateLabel: string | null;
+  /**
+   * A short label for the in-session template picked for THIS project,
+   * or null if none (Task 174: a pick made in another project is null).
+   */
+  activeTemplateLabelFor(moliospecPath: string): string | null;
 }
 
 const noCover: CoverEngine = {
@@ -107,7 +125,7 @@ const noCover: CoverEngine = {
   applyCover: async (_active, bytes) => bytes,
   openEditor: () => {},
   clearTemplate: () => {},
-  activeTemplateLabel: null,
+  activeTemplateLabelFor: () => null,
 };
 
 const CoverContext = createContext<CoverEngine>(noCover);

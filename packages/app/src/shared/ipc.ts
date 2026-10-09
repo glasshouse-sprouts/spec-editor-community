@@ -411,6 +411,10 @@ export type EditRequest =
       issueDate?: string | null;
       reviewedBy?: string | null;
       approvedBy?: string | null;
+      /** Task 155 - the work area's reference-list date (fiksdato).
+       *  `null` clears it, which means "inherit from the project".
+       *  The GUID column beside it stays locked. */
+      referencelistAreaDate?: string | null;
     }
   /**
    * Slice 10E — update BDB (construction_element_spec) metadata.
@@ -429,6 +433,9 @@ export type EditRequest =
       issueDate?: string | null;
       reviewedBy?: string | null;
       approvedBy?: string | null;
+      /** Task 155 - the BDB's own reference-list date (fiksdato).
+       *  `null` clears it, which means "inherit". */
+      referencelistAreaDate?: string | null;
     }
   /**
    * Slice 10F — update control-plan metadata. Only `revision` and
@@ -1786,6 +1793,53 @@ export type GetMolioReferenceResult =
  *  Pass null/empty for `no-revision` (spec has no Basis link). */
 export interface GetMolioReferencelistRequest {
   workAreaRevisionId: string | null;
+  /**
+   * Task 155 - the reference-list dates (fiksdato) that apply to this
+   * spec, raw as the fields hold them. Main applies the rule BDB >
+   * work area > project and converts the winner.
+   *
+   * The RENDERER has to supply them because main does not hold the
+   * open file, and the values that count are the effective ones,
+   * including edits the user has not saved. MAIN does the converting,
+   * not the renderer: the renderer must not import
+   * `@molio2-editor/core` (it drags in better-sqlite3 and blanks the
+   * window - see the note in `pfbbMigration.ts`), and one conversion
+   * in one place cannot disagree with itself.
+   */
+  referencelistDates?: MolioReferencelistDateInputs;
+}
+
+/** Task 155 - the three levels, raw. Blank, null and undefined all
+ *  mean "not set at this level", which inherits from the next one. */
+export interface MolioReferencelistDateInputs {
+  /** `construction_element_spec.molio_referencelist_area_date`. */
+  bdb?: string | null;
+  /** `work_spec.molio_referencelist_area_date`. */
+  workArea?: string | null;
+  /** `project.molio_referencelist_date`. */
+  project?: string | null;
+}
+
+/** Which level a reference-list date came from. Mirrors
+ *  `ReferencelistDateSource` in core, spelled out here so the
+ *  renderer never has to import core. */
+export type MolioReferencelistDateLevel = "project" | "workArea" | "bdb";
+
+/**
+ * Task 155 - what the lookup actually did about the date. Reported
+ * back so the Referenceliste tab can state it ("Dato: 2024-11-20
+ * (fra projektet)") instead of guessing, and so an unreadable date
+ * is visible rather than silently ignored.
+ */
+export interface MolioReferencelistDateUsed {
+  /** The date that applied, `YYYY-MM-DD`, or null when no level set
+   *  one - then Molio's most-current list was fetched. */
+  date: string | null;
+  /** Which level `date` came from. Null when `date` is null. */
+  source: MolioReferencelistDateLevel | null;
+  /** Levels whose stored value could not be read as `YYYY-MM-DD`.
+   *  Treated as blank, but named so the UI can warn. */
+  invalid: MolioReferencelistDateLevel[];
 }
 
 /** One citation inside a Referenceliste sub-section. JSON-flat
@@ -1841,7 +1895,12 @@ export interface MolioReferencelistData {
 /** Discriminated result. Mirrors GetMolioReferenceResult so the
  *  renderer can share state-rendering code. */
 export type GetMolioReferencelistResult =
-  | { kind: "ok"; data: MolioReferencelistData }
+  | {
+      kind: "ok";
+      data: MolioReferencelistData;
+      /** Task 155 - the date this list was looked up with. */
+      dateUsed: MolioReferencelistDateUsed;
+    }
   | { kind: "no-revision" }
   | { kind: "no-config"; reason: "no-key" | "no-email" }
   | { kind: "no-license" }
@@ -1851,6 +1910,14 @@ export type GetMolioReferencelistResult =
    *  The renderer shows a plain-language message; no technical
    *  detail crosses IPC. See main/handlers/molioContentError.ts. */
   | { kind: "revision-unavailable" }
+  /**
+   * Task 155 - a fiksdato was sent and Molio has no reference list
+   * published on or before it. Measured 2026-10-05: the API answers
+   * HTTP 404 for this, the same status a retired revision gives, so
+   * the two are told apart by whether a date was sent at all. The
+   * renderer names the date; this variant carries none.
+   */
+  | { kind: "no-list-for-date"; dateUsed: MolioReferencelistDateUsed }
   | { kind: "error"; message: string };
 
 /* ------------------------------------------------------------------ */

@@ -401,7 +401,9 @@ describe("buildCompositePdf - reserveCoverPage (Task 173)", () => {
     const footer = doc.footer as Chrome;
     expect((header(1, 9) as { text?: string }).text).toBe("");
     expect((footer(1, 9) as { text?: string }).text).toBe("");
-    expect(collectAllText(footer(2, 9))).toContain("Page 2 of 9");
+    expect(collectAllText(header(2, 9))).toContain("2/9");
+    // Task 183: the footer carries no page number any more.
+    expect(collectAllText(footer(2, 9)).join("|")).not.toContain("Page");
   });
 
   it("without TOC the first chapter still starts on page 2, like with the built-in cover", () => {

@@ -3,9 +3,11 @@
  * running footer, and the cover-page stub.
  *
  * As of 7.3b the running header follows the Danish BIPS B1000 template:
- * a 2-column × 4-row table with Bygherre/Entrepriseform placeholders on
- * the left and a label:value block on the right. Tests poke inside the
- * returned `table.body` to check both the structure and the content.
+ * a 2-column × 4-row table with the bygherre and the entreprise on the
+ * left (Task 183 - they used to be the placeholders "[Bygherre]" and
+ * "[Entrepriseform]") and a label:value block on the right. Tests poke
+ * inside the returned `table.body` to check both the structure and the
+ * content.
  *
  * The helpers are pure — header/footer return functions, so we call
  * those functions directly with sample page numbers.
@@ -13,8 +15,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BYGHERRE_PLACEHOLDER,
-  ENTREPRISEFORM_PLACEHOLDER,
   makeCover,
   makeFooter,
   makeHeader,
@@ -25,11 +25,13 @@ import {
 function baseArgs(overrides: Partial<PdfChromeArgs> = {}): PdfChromeArgs {
   return {
     projectName: "Prj",
+    builder: "A.P. Møller-Mærsk",
+    contractLabel: "01 - Fagentreprise",
     workAreaName: "2.5 Beton",
     documentLabel: "Arbejdsbeskrivelse",
     dateText: "2026-04-20",
     revisionDateText: null,
-    companyName: "Company name",
+    companyName: "ACME ApS",
     ...overrides,
   };
 }
@@ -41,7 +43,6 @@ function baseCoverArgs(overrides: Partial<PdfCoverArgs> = {}): PdfCoverArgs {
     subtitle: null,
     revision: null,
     revisionDate: null,
-    contractLabel: "01 - Fagentreprise",
     ...overrides,
   };
 }
@@ -105,7 +106,7 @@ describe("makeHeader (BIPS B1000)", () => {
     expect(node.stack).toHaveLength(2);
     const [topRow, metaRows] = node.stack ?? [];
 
-    // Row 1 — two EQUAL cells (placeholder left, project name right).
+    // Row 1 — two EQUAL cells (bygherre left, project name right).
     expect(topRow?.table?.widths).toEqual(["*", "*"]);
     expect(topRow?.table?.body).toHaveLength(1);
 
@@ -160,16 +161,38 @@ describe("makeHeader (BIPS B1000)", () => {
     }
   });
 
-  it("prints the Danish placeholders, work-area name, document label on the left", () => {
+  it("prints bygherre, entreprise, work-area name, document label on the left (Task 183)", () => {
     const fn = makeHeader(
       baseArgs({ workAreaName: "3.1 Gulv", documentLabel: "BDB X" }),
     );
-    const node = fn(2, 5);
-    const texts = collectText(node);
-    expect(texts).toContain(BYGHERRE_PLACEHOLDER);
-    expect(texts).toContain(ENTREPRISEFORM_PLACEHOLDER);
-    expect(texts).toContain("3.1 Gulv");
-    expect(texts).toContain("BDB X");
+    const node = fn(2, 5) as HeaderNode;
+    const [topRow, metaRows] = node.stack ?? [];
+    const leftOf = (sub: HeaderSubTable | undefined, row: number): string[] =>
+      collectText(((sub?.table?.body ?? [])[row] as unknown[])[0]);
+    // Row 1 left: the bygherre, bold. Row 2 left: the entreprise.
+    expect(leftOf(topRow, 0)).toEqual(["A.P. Møller-Mærsk"]);
+    expect(
+      (((topRow?.table?.body ?? [])[0] as unknown[])[0] as { bold?: boolean })
+        .bold,
+    ).toBe(true);
+    expect(leftOf(metaRows, 0)).toEqual(["01 - Fagentreprise"]);
+    expect(leftOf(metaRows, 1)).toEqual(["3.1 Gulv"]);
+    expect(leftOf(metaRows, 2)).toEqual(["BDB X"]);
+  });
+
+  it("prints empty cells - never a placeholder - when bygherre and entreprise are missing (Task 183)", () => {
+    for (const missing of [null, "", "   "]) {
+      const fn = makeHeader(
+        baseArgs({ builder: missing, contractLabel: missing }),
+      );
+      const node = fn(2, 5) as HeaderNode;
+      const [topRow, metaRows] = node.stack ?? [];
+      const topLeft = ((topRow?.table?.body ?? [])[0] as unknown[])[0];
+      const row2Left = ((metaRows?.table?.body ?? [])[0] as unknown[])[0];
+      expect(collectText(topLeft)).toEqual([""]);
+      expect(collectText(row2Left)).toEqual([""]);
+      expect(collectText(node).join("|")).not.toMatch(/\[|\]/);
+    }
   });
 
   it("prints project name, Dato, Rev.dato, and Side on the right", () => {
@@ -201,10 +224,12 @@ describe("makeHeader (BIPS B1000)", () => {
     expect(texts.some((t) => /\d{4}-\d{2}-\d{2}/.test(t))).toBe(true); // dateText only
   });
 
-  it("does not duplicate the contract label in the header (cover-only now)", () => {
-    const fn = makeHeader(baseArgs());
-    const texts = collectText(fn(2, 5));
-    expect(texts).not.toContain("01 - Fagentreprise");
+  it("prints the same entreprise as the cover (Task 183)", () => {
+    const args = baseArgs();
+    const headerTexts = collectText(makeHeader(args)(2, 5));
+    const coverTexts = collectText(makeCover({ ...args, title: "X" }));
+    expect(headerTexts).toContain("01 - Fagentreprise");
+    expect(coverTexts).toContain("01 - Fagentreprise");
   });
 });
 
@@ -215,12 +240,21 @@ describe("makeFooter", () => {
     expect(node.text).toBe("");
   });
 
-  it("renders company name on the left and Page N of M on the right", () => {
+  it("renders the company name and no page number (Task 183 - it is in the header)", () => {
     const fn = makeFooter(baseArgs());
     const node = fn(3, 9);
     const texts = collectText(node);
-    expect(texts).toContain("Company name");
-    expect(texts).toContain("Page 3 of 9");
+    expect(texts).toEqual(["ACME ApS"]);
+  });
+
+  it("renders an empty cell - never a placeholder - when there is no company name (Task 183)", () => {
+    for (const missing of [null, ""]) {
+      const fn = makeFooter(baseArgs({ companyName: missing }));
+      const node = fn(3, 9) as { table?: { body?: unknown[][] } };
+      expect(collectText(node)).toEqual([""]);
+      // The rule above the row is still drawn, so the layout is stable.
+      expect(node.table?.body).toHaveLength(1);
+    }
   });
 
   it("puts a horizontal rule above the only row (Tore's 'line above')", () => {
@@ -268,7 +302,18 @@ describe("makeCover", () => {
     expect(texts).toContain("2.5");
     expect(texts).toContain("Prj");
     expect(texts).toContain("01 - Fagentreprise");
-    expect(texts).toContain("Company name");
+    expect(texts).toContain("ACME ApS");
+  });
+
+  it("prints an empty company line - never a placeholder - when there is none, and keeps the page break (Task 183)", () => {
+    const content = makeCover(baseCoverArgs({ companyName: null }));
+    const last = content[content.length - 1] as {
+      text?: string;
+      pageBreak?: string;
+    };
+    expect(last.text).toBe("");
+    expect(last.pageBreak).toBe("after");
+    expect(collectText(content)).not.toContain("Company name");
   });
 
   it("marks the tail node with pageBreak: 'after'", () => {
@@ -299,7 +344,7 @@ describe("makeCover", () => {
     );
     const combined = collectText(content).join("|");
     expect(combined).toContain("Revision: B");
-    expect(combined).toContain("Revision date: 2026-04-19");
+    expect(combined).toContain("Revisionsdato: 2026-04-19");
   });
 
   it("uses tighter vertical spacers when orientation is landscape", () => {

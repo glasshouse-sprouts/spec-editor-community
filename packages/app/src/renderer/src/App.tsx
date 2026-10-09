@@ -50,6 +50,7 @@ import type {
   CreatePfbbChildResult,
   FilePayload,
   MigrateOrphanPfbbMastersResult,
+  MolioReferencelistDateInputs,
   GetDeleteImpactResult,
   SchemaUpgradeInfo,
   SectionData,
@@ -71,6 +72,7 @@ import {
   getEffectiveCpHeaderField,
   getEffectiveCpRowCell,
   getEffectiveCpTitle,
+  getEffectiveBdbField,
   getEffectiveProjectField,
   getEffectiveWorkSpecContract,
   getEffectiveWorkSpecField,
@@ -99,6 +101,7 @@ import {
   setCpHeaderField,
   setCpRowCell,
   setCpTitle,
+  setBdbField,
   setProjectField,
   setSectionBody,
   setWorkSpecContract,
@@ -108,6 +111,16 @@ import {
   type SectionKind,
 } from "./edits.js";
 import { basename, isMoliospecFile } from "./fileUtils.js";
+import {
+  findReferencelistDateCascade,
+  type ReferencelistDateRow,
+} from "./referencelistDates.js";
+import {
+  buildDateTextSpecs,
+  planReferencelistDateText,
+  specsWhoseDateChanged,
+  type DateTextPlan,
+} from "./referencelistDateText.js";
 import { ImportModal, type ImportDialogView } from "./ImportModal.js";
 import { FillFromStandardModal } from "./modals/FillFromStandardModal.js";
 import { ImportSourceModal } from "./modals/ImportSourceModal.js";
@@ -225,6 +238,8 @@ import {
   EditBdbModal,
   EditProjectModal,
   EditWorkSpecModal,
+  ReferencelistDateCascadeModal,
+  ReferencelistDateTextModal,
 } from "./modals/metadataModals.js";
 import {
   AttachmentsModal,
@@ -392,6 +407,11 @@ function buildDirtyTabIds(
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
+
+/** Task 184 - a pending "Gældende dato for referencer" check: the edit
+ *  map from before a date dialog was confirmed, and whether to look at
+ *  the descriptions whose date changed or at all of them. */
+type DateTextCheck = { before: EditMap; mode: "changed" | "all" };
 
 export function App(): JSX.Element {
   // App-level settings dialog (gear icon top-right). Currently houses
@@ -1313,7 +1333,239 @@ export function App(): JSX.Element {
 
   const handleRequestEditProject = editProjectController.open;
   const cancelEditProject = editProjectController.cancel;
-  const confirmEditProject = editProjectController.confirm;
+
+  /**
+   * Task 155, rule 5 - the project's reference-list date is the
+   * default every level inherits, so changing it can silently change
+   * the reference list for parts of the project that set a date of
+   * their own. Those rows are not touched without asking.
+   *
+   * The question is asked when the dialog is confirmed, not when the
+   * file is saved: that is the moment the user decided the new date,
+   * and the cascade is then staged alongside it so the two travel to
+   * disk together.
+   */
+  const [referencelistCascade, setReferencelistCascade] = useState<{
+    newDate: string | null;
+    rows: ReferencelistDateRow[];
+    /** Task 184 - carried through the cascade question so the
+     *  "Gældende dato for referencer" check runs after it is answered. */
+    textCheck: DateTextCheck;
+  } | null>(null);
+
+  /**
+   * Task 184 - after a reference-list date was confirmed (and any rule-5
+   * cascade answered), compare the date that applies to each
+   * description before and after, and offer to rewrite the date line in
+   * those whose date changed. `mode: "all"` is the button in "Redigér
+   * projekt": every description, whether its date changed or not.
+   *
+   * The check is a state value, not a direct call, because the dialogs
+   * stage their edits through `setEdits(updater)`: the new edit map only
+   * exists on the next render. The effect below picks it up there.
+   */
+  const [dateTextCheck, setDateTextCheck] = useState<DateTextCheck | null>(
+    null,
+  );
+  const [dateTextPlan, setDateTextPlan] = useState<DateTextPlan | null>(null);
+
+  useEffect(() => {
+    if (!dateTextCheck) return;
+    setDateTextCheck(null);
+    if (state.kind !== "loaded" || !state.data) return;
+    const after = buildDateTextSpecs(state.data, edits);
+    const specs =
+      dateTextCheck.mode === "all"
+        ? after
+        : specsWhoseDateChanged(
+            buildDateTextSpecs(state.data, dateTextCheck.before),
+            after,
+          );
+    const plan = planReferencelistDateText(specs);
+    const worthAsking =
+      dateTextCheck.mode === "all" ||
+      plan.updates.length > 0 ||
+      plan.ambiguous.length > 0 ||
+      plan.unsafe.length > 0;
+    if (worthAsking) setDateTextPlan(plan);
+  }, [dateTextCheck, state, edits]);
+
+  /** "Update the sections": stage every planned line as an ordinary
+   *  section-body edit - pending, undoable, written on ⌘S. */
+  const applyDateTextPlan = useCallback((): void => {
+    const plan = dateTextPlan;
+    setDateTextPlan(null);
+    if (!plan) return;
+    setEdits((m) =>
+      plan.updates.reduce(
+        (next, u) =>
+          setSectionBody(next, u.kind, u.sectionId, u.newBody, u.diskBody),
+        m,
+      ),
+    );
+  }, [dateTextPlan, setEdits]);
+
+  const runConfirmEditProject = useCallback(
+    (mode: "changed" | "all"): void => {
+      const textCheck: DateTextCheck = { before: edits, mode };
+      const result = editProjectController.confirm();
+      const offerText = (): void => {
+        if (result.referencelistDateChanged || mode === "all") {
+          setDateTextCheck(textCheck);
+        }
+      };
+      if (!result.referencelistDateChanged) {
+        offerText();
+        return;
+      }
+      if (state.kind !== "loaded" || !state.data) return;
+      const data = state.data;
+      const rows: ReferencelistDateRow[] = [
+        ...data.workSpecs.map((w) => ({
+          kind: "workSpec" as const,
+          id: w.id,
+          name: w.workAreaName,
+          date: getEffectiveWorkSpecField(
+            edits,
+            w.id,
+            "referencelistAreaDate",
+            w.refs.referencelistAreaDate,
+          ) as string | null,
+          diskDate: w.refs.referencelistAreaDate,
+        })),
+        ...data.bdbs.map((b) => ({
+          kind: "bdb" as const,
+          id: b.id,
+          name: b.name,
+          date: getEffectiveBdbField(
+            edits,
+            b.id,
+            "referencelistAreaDate",
+            b.refs.referencelistAreaDate,
+          ) as string | null,
+          diskDate: b.refs.referencelistAreaDate,
+        })),
+      ];
+      const affected = findReferencelistDateCascade(
+        rows,
+        result.newReferencelistDate,
+      );
+      if (affected.length === 0) {
+        offerText();
+        return;
+      }
+      setReferencelistCascade({
+        newDate: result.newReferencelistDate,
+        rows: affected,
+        textCheck,
+      });
+    },
+    [editProjectController, state, edits],
+  );
+
+  const confirmEditProject = useCallback(
+    (): void => runConfirmEditProject("changed"),
+    [runConfirmEditProject],
+  );
+  const confirmEditProjectAndWriteDate = useCallback(
+    (): void => runConfirmEditProject("all"),
+    [runConfirmEditProject],
+  );
+
+  /** Rule 5, "keep their own dates": nothing changes on those rows, but
+   *  the date-text check (Task 184) still runs for the rest. */
+  const keepReferencelistCascade = useCallback((): void => {
+    const pending = referencelistCascade;
+    setReferencelistCascade(null);
+    if (pending) setDateTextCheck(pending.textCheck);
+  }, [referencelistCascade]);
+
+  /**
+   * Task 155, rule 4 - the three dates that apply to one tab, as
+   * effective values. The lookup in main applies the order; this only
+   * reads the fields.
+   *
+   * The BDB level is filled in only for a BDB tab, and the work-area
+   * level is the BDB's parent work area - for a work-area tab it is
+   * that work area itself.
+   */
+  const referencelistDatesFor = useCallback(
+    (target: {
+      kind: "workSpec" | "bdb";
+      id: number;
+    }): MolioReferencelistDateInputs => {
+      if (state.kind !== "loaded" || !state.data) return {};
+      const data = state.data;
+      const project = getEffectiveProjectField(
+        edits,
+        "molioReferencelistDate",
+        data.project?.moliioReferencelistDate ?? null,
+      );
+      // A BDB's work_spec_id is nullable in the schema, so the
+      // work-area level can simply be absent.
+      const wsDate = (id: number | null): string | null => {
+        if (id == null) return null;
+        const ws = data.workSpecs.find((w) => w.id === id);
+        if (!ws) return null;
+        return getEffectiveWorkSpecField(
+          edits,
+          ws.id,
+          "referencelistAreaDate",
+          ws.refs.referencelistAreaDate,
+        ) as string | null;
+      };
+      if (target.kind === "workSpec") {
+        return { workArea: wsDate(target.id), project };
+      }
+      const bdb = data.bdbs.find((b) => b.id === target.id);
+      if (!bdb) return { project };
+      return {
+        bdb: getEffectiveBdbField(
+          edits,
+          bdb.id,
+          "referencelistAreaDate",
+          bdb.refs.referencelistAreaDate,
+        ) as string | null,
+        workArea: wsDate(bdb.workSpecId),
+        project,
+      };
+    },
+    [state, edits],
+  );
+
+  /** Rule 5, "update them too": give every listed row the new project
+   *  date. Clearing the project date clears theirs, which puts them
+   *  back on inheritance. */
+  const applyReferencelistCascade = useCallback((): void => {
+    const pending = referencelistCascade;
+    setReferencelistCascade(null);
+    if (!pending) return;
+    setEdits((m) => {
+      let next = m;
+      for (const row of pending.rows) {
+        if (row.kind === "workSpec") {
+          next = setWorkSpecField(
+            next,
+            row.id,
+            "referencelistAreaDate",
+            pending.newDate,
+            row.diskDate,
+          );
+        } else {
+          next = setBdbField(
+            next,
+            row.id,
+            "referencelistAreaDate",
+            pending.newDate,
+            row.diskDate,
+          );
+        }
+      }
+      return next;
+    });
+    // Task 184: same render as the cascade edits, so the check sees them.
+    setDateTextCheck(pending.textCheck);
+  }, [referencelistCascade, setEdits]);
 
   // --- Edit work-area metadata (Slice 10E) --------------------------------
 
@@ -1326,12 +1578,23 @@ export function App(): JSX.Element {
    */
   const handleRequestEditWorkSpec = editWorkSpecController.open;
   const cancelEditWorkSpec = editWorkSpecController.cancel;
-  const confirmEditWorkSpec = editWorkSpecController.confirm;
+  // Task 184: a changed date on a work area or BDB is offered the same
+  // "Gældende dato for referencer" update. If the date did not change,
+  // the check finds nothing and stays silent.
+  const confirmEditWorkSpec = useCallback((): void => {
+    const before = edits;
+    editWorkSpecController.confirm();
+    setDateTextCheck({ before, mode: "changed" });
+  }, [edits, editWorkSpecController]);
 
   // --- Edit BDB metadata (Slice 10E) --------------------------------------
   const handleRequestEditBdb = editBdbController.open;
   const cancelEditBdb = editBdbController.cancel;
-  const confirmEditBdb = editBdbController.confirm;
+  const confirmEditBdb = useCallback((): void => {
+    const before = edits;
+    editBdbController.confirm();
+    setDateTextCheck({ before, mode: "changed" });
+  }, [edits, editBdbController]);
 
   // --- Edit control plan metadata (Slice 10F) -----------------------------
   const handleRequestEditCp = editCpController.open;
@@ -2669,6 +2932,7 @@ export function App(): JSX.Element {
                     effectiveProjectField={(field, orig) =>
                       getEffectiveProjectField(edits, field, orig)
                     }
+                    referencelistDatesFor={referencelistDatesFor}
                     isProjectEdited={isProjectEdited(edits)}
                     onRequestEditProject={
                       readerMode ? undefined : handleRequestEditProject
@@ -3361,6 +3625,37 @@ export function App(): JSX.Element {
               onChangeMolioReferencelistDate={(molioReferencelistDate) =>
                 editProjectController.patch({ molioReferencelistDate })
               }
+              onWriteDateIntoSpecs={confirmEditProjectAndWriteDate}
+            />
+          )}
+
+          {referencelistCascade && (
+            <ReferencelistDateCascadeModal
+              newDate={referencelistCascade.newDate}
+              workAreaCount={
+                referencelistCascade.rows.filter((r) => r.kind === "workSpec")
+                  .length
+              }
+              bdbCount={
+                referencelistCascade.rows.filter((r) => r.kind === "bdb").length
+              }
+              onKeepTheirs={keepReferencelistCascade}
+              onUpdateAll={applyReferencelistCascade}
+            />
+          )}
+
+          {dateTextPlan && (
+            <ReferencelistDateTextModal
+              workAreaCount={
+                dateTextPlan.updates.filter((u) => u.kind === "workSpec").length
+              }
+              bdbCount={
+                dateTextPlan.updates.filter((u) => u.kind === "bdb").length
+              }
+              ambiguousNames={dateTextPlan.ambiguous.map((a) => a.name)}
+              unsafeNames={dateTextPlan.unsafe.map((a) => a.name)}
+              onSkip={() => setDateTextPlan(null)}
+              onUpdate={applyDateTextPlan}
             />
           )}
 

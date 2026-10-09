@@ -3408,6 +3408,16 @@ button.counter--clickable:focus-visible {
   margin: 14px 0 0;
 }
 
+/* Task 155 - the fiksdato line above the reference list ("Dato:
+ * 2024-11-20 (fra projektet)"). Deliberately NOT a hint: it is a
+ * fact about the list below it, not advice, so it sits upright and
+ * tight under the title instead of being italic and pushed down. */
+.ref-panel__meta {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
 /* MAPI5 — Reference panel state messages for the Molio Basis /
  * Instruction sub-tabs. Yellow for "user needs to do something"
  * (no key, no email, no license); red for outright errors
@@ -4525,6 +4535,21 @@ button.counter--clickable:focus-visible {
   font-size: 12px;
   font-weight: 500;
   color: var(--c-text-muted);
+}
+
+/* Task 155 - the two lines that can sit under a reference-list date
+ * field. The hint states what a blank field inherits; the warning
+ * appears when the stored value cannot be read as a date, which is
+ * possible because the project field was free text until this
+ * change. Both sit inside the <label>, after the input, so they
+ * follow the field they belong to. */
+.modal__field-hint {
+  font-size: 11px;
+  color: var(--c-text-muted);
+}
+.modal__field-warn {
+  font-size: 11px;
+  color: #92400e; /* amber-800, same as .ref-panel__hint--warn */
 }
 
 .modal__input {

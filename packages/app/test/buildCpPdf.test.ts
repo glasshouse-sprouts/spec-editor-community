@@ -72,7 +72,6 @@ function defaultArgs(): Parameters<typeof buildCpPdf>[0] {
     title: "T",
     headers: [],
     rows: [],
-    companyName: "Company name",
     // Older assertions were written against the pre-cover layout; opt in
     // to the cover only where the test actually checks it.
     includeCoverPage: false,
@@ -115,8 +114,8 @@ describe("buildCpPdf", () => {
     expect(titleIdx).toBeGreaterThanOrEqual(0);
     expect(textAt(content, titleIdx + 1)).toBe("BDB 2.5.1 Fundering");
     const meta = textAt(content, titleIdx + 2);
-    expect(meta).toContain("Kind: Control plan");
-    expect(meta).toContain("Project: Test project");
+    expect(meta).toContain("Type: Kontrolplan");
+    expect(meta).toContain("Projekt: Test project");
   });
 
   it("emits the empty marker when no rows exist", () => {
@@ -134,7 +133,7 @@ describe("buildCpPdf", () => {
       last && typeof last === "object" && "text" in last
         ? (last as { text: unknown }).text
         : undefined,
-    ).toBe("(no control-plan rows)");
+    ).toBe("(ingen rækker i kontrolplanen)");
   });
 
   it("renders a table with header row + group rows + data rows", () => {
@@ -268,6 +267,7 @@ describe("buildCpPdf", () => {
       numberText: "3.1",
       title: "CP",
       projectName: "Prj",
+      companyName: "ACME ApS",
     });
     const content = doc.content as Content[];
     const texts = content
@@ -282,7 +282,7 @@ describe("buildCpPdf", () => {
     // appear at least twice.
     const occurrences = texts.filter((t) => t === "3.1  CP").length;
     expect(occurrences).toBeGreaterThanOrEqual(2);
-    expect(texts).toContain("Company name");
+    expect(texts).toContain("ACME ApS");
     expect(texts).toContain("Prj");
   });
 
@@ -294,6 +294,8 @@ describe("buildCpPdf", () => {
       projectName: "Prj",
       workAreaName: "2.5 Beton",
       contractLabel: "01 - X",
+      builder: "A.P. Møller-Mærsk",
+      companyName: "ACME ApS",
     });
     const headerFn = doc.header as (p: number, pc: number) => unknown;
     const headerTexts = collectAllText(headerFn(2, 4));
@@ -306,13 +308,24 @@ describe("buildCpPdf", () => {
     // Danish BIPS labels.
     expect(headerTexts).toContain("Dato");
     expect(headerTexts).toContain("Side");
-    // Contract label is cover-only now, not in the header.
-    expect(headerTexts).not.toContain("01 - X");
+    // Task 183: the header shows the bygherre and the entreprise, the
+    // same entreprise the cover prints.
+    expect(headerTexts).toContain("A.P. Møller-Mærsk");
+    expect(headerTexts).toContain("01 - X");
 
     const footerFn = doc.footer as (p: number, pc: number) => unknown;
     const footerTexts = collectAllText(footerFn(2, 4));
-    expect(footerTexts).toContain("Company name");
-    expect(footerTexts).toContain("Page 2 of 4");
+    expect(footerTexts).toContain("ACME ApS");
+    // Task 183: no page number in the footer - it is in the header.
+    expect(footerTexts.join("|")).not.toContain("Page");
+  });
+
+  it("leaves the bygherre and entreprise cells empty when they are missing (Task 183)", () => {
+    const doc = buildCpPdf({ ...defaultArgs(), projectName: "Prj" });
+    const headerTexts = collectAllText(
+      (doc.header as (p: number, pc: number) => unknown)(2, 4),
+    );
+    expect(headerTexts.join("|")).not.toMatch(/\[|\]|Bygherre|Entreprise/);
   });
 });
 
@@ -364,7 +377,8 @@ describe("buildCpPdf - reserveCoverPage (Task 173)", () => {
     expect((header(1, 3) as { text?: string }).text).toBe("");
     expect((footer(1, 3) as { text?: string }).text).toBe("");
     expect(collectAllText(header(2, 3))).toContain("2/3");
-    expect(collectAllText(footer(2, 3))).toContain("Page 2 of 3");
+    // Task 183: the footer carries no page number any more.
+    expect(collectAllText(footer(2, 3)).join("|")).not.toContain("Page");
   });
 
   it("is off by default - page 1 is body and carries the header", () => {

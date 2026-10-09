@@ -28,6 +28,7 @@ import type {
   FilePayload,
   SectionData,
   WorkSpecInfo,
+  MolioReferencelistDateInputs,
 } from "../../shared/ipc.js";
 import { ControlPlanTableView } from "./ControlPlanTableView.js";
 import { formatDate, formatTimestamp } from "./dateHelpers.js";
@@ -54,6 +55,7 @@ import { Sidebar, sidebarContractLabel } from "./Sidebar.js";
 import { compareCodeThenName } from "./sortHelpers.js";
 import { SpecTabView } from "./SpecTabView.js";
 import type { TabTarget } from "./tabs.js";
+import { workAreaTypeUiKey } from "./pdf/documentTypes.js";
 
 interface Props {
   data: FilePayload;
@@ -195,6 +197,16 @@ interface Props {
     field: "name" | "projectNumber" | "builder" | "molioReferencelistDate",
     originalValue: string | null,
   ) => string | null;
+  /**
+   * Task 155 - the three reference-list dates (fiksdato) that apply
+   * to a tab, effective values including unsaved edits. Supplied by
+   * App, which owns the edit map; this view only forwards them.
+   * Optional, so tab-only callers (tests) need not wire it.
+   */
+  referencelistDatesFor?: (target: {
+    kind: "workSpec" | "bdb";
+    id: number;
+  }) => MolioReferencelistDateInputs;
   isProjectEdited?: boolean;
   onRequestEditProject?: () => void;
   /**
@@ -351,6 +363,7 @@ export function MainPane({
   onRequestEditContract,
   onRequestDeleteContract,
   effectiveProjectField,
+  referencelistDatesFor,
   isProjectEdited = false,
   onRequestEditProject,
   selection,
@@ -400,6 +413,16 @@ export function MainPane({
   // Version-compare engine (Glasshouse-only; no-op default in Community).
   // Drives the aligned version column + the TOC change dots.
   const versionEngine = useVersionCompareEngine();
+  // Task 155 — the reference-list dates (fiksdato) the Referenceliste
+  // lookup must honour, per tab. App resolves them, because the
+  // effective value of a work-area or BDB field needs the edit map.
+  // With no resolver wired (tests), the lookup behaves as it did
+  // before Task 155.
+  const referencelistDates = (target: {
+    kind: "workSpec" | "bdb";
+    id: number;
+  }): MolioReferencelistDateInputs =>
+    referencelistDatesFor ? referencelistDatesFor(target) : {};
   // Slice 6M — doomed containers render a placeholder in the tab so
   // the user can't keep editing something that's about to disappear.
   // The project tab itself never gets deleted, so skip the guard there.
@@ -518,7 +541,9 @@ export function MainPane({
       <SpecTabView
         title={ws.workAreaName}
         subtitle={ws.workAreaCode ?? undefined}
-        kind={t("mainPane.kind.workArea")}
+        // Task 147 B2.2: the document's own type (Arbejdsbeskrivelse /
+        // Fælles beskrivelse / Paradigme for arbejdsbeskrivelse).
+        kind={t(workAreaTypeUiKey(ws.workAreaType))}
         revision={ws.revision}
         revisionDate={ws.revisionDate}
         sections={sections}
@@ -528,6 +553,10 @@ export function MainPane({
         onTocCollapsedNodeIdsChange={onTocCollapsedNodeIdsChange}
         refs={ws.refs}
         targetKind="workSpec"
+        referencelistDates={referencelistDates({
+          kind: "workSpec",
+          id: ws.id,
+        })}
         refSubTab={refSubTab}
         onRefSubTabChange={onRefSubTabChange}
         refPanelCollapsed={refPanelCollapsed}
@@ -622,6 +651,7 @@ export function MainPane({
                 ? `${childParentWorkSpec.workAreaCode} — ${childParentWorkSpec.workAreaName}`
                 : childParentWorkSpec.workAreaName,
               sections: data.sectionsByWorkSpec[childParentWorkSpec.id] ?? [],
+              sideKindKey: workAreaTypeUiKey(childParentWorkSpec.workAreaType),
             }
           : null;
       return (
@@ -644,6 +674,12 @@ export function MainPane({
           onTocCollapsedNodeIdsChange={onTocCollapsedNodeIdsChange}
           refs={masterRefs}
           targetKind="bdb"
+          /* The child shows the MASTER's references, so the master's
+             own date is the one that applies - not the child's. */
+          referencelistDates={referencelistDates({
+            kind: "bdb",
+            id: master?.id ?? b.id,
+          })}
           refSubTab={refSubTab}
           onRefSubTabChange={onRefSubTabChange}
           refPanelCollapsed={refPanelCollapsed}
@@ -692,6 +728,7 @@ export function MainPane({
               ? `${parentWorkSpec.workAreaCode} — ${parentWorkSpec.workAreaName}`
               : parentWorkSpec.workAreaName,
             sections: data.sectionsByWorkSpec[parentWorkSpec.id] ?? [],
+            sideKindKey: workAreaTypeUiKey(parentWorkSpec.workAreaType),
           }
         : null;
     // Slice "Live aligned diff" — same in-progress-edit pass for BDB
@@ -734,6 +771,7 @@ export function MainPane({
         onTocCollapsedNodeIdsChange={onTocCollapsedNodeIdsChange}
         refs={b.refs}
         targetKind="bdb"
+        referencelistDates={referencelistDates({ kind: "bdb", id: b.id })}
         refSubTab={refSubTab}
         onRefSubTabChange={onRefSubTabChange}
         refPanelCollapsed={refPanelCollapsed}
@@ -895,6 +933,16 @@ function ProjectView({
     field: "name" | "projectNumber" | "builder" | "molioReferencelistDate",
     originalValue: string | null,
   ) => string | null;
+  /**
+   * Task 155 - the three reference-list dates (fiksdato) that apply
+   * to a tab, effective values including unsaved edits. Supplied by
+   * App, which owns the edit map; this view only forwards them.
+   * Optional, so tab-only callers (tests) need not wire it.
+   */
+  referencelistDatesFor?: (target: {
+    kind: "workSpec" | "bdb";
+    id: number;
+  }) => MolioReferencelistDateInputs;
   isProjectEdited?: boolean;
   onRequestEditProject?: () => void;
   selection: TabTarget;
@@ -1151,7 +1199,7 @@ function ProjectView({
         />
         <ExportCard data={data} onOpenExport={onOpenExport} />
         {/* Glasshouse-only — renders null in Community (cover engine off). */}
-        <CoverCard />
+        <CoverCard moliospecPath={data.path} />
       </div>
     </div>
   );
@@ -1597,7 +1645,7 @@ function findMatchingWorkAreaAlignment(
   addedFormat: import("./compare/versionCompareFormat.js").DiffFormat,
   deletedFormat: import("./compare/versionCompareFormat.js").DiffFormat,
   buildAlignment: VersionCompareEngine["buildVersionAlignmentSections"],
-): { sideTitle: string; sections: SectionData[] } | null {
+): { sideTitle: string; sections: SectionData[]; sideKindKey: string } | null {
   const wantKey = waMatchKey(ws);
   const refWs = reference.workSpecs.find((r) => waMatchKey(r) === wantKey);
   if (!refWs) return null;
@@ -1613,6 +1661,7 @@ function findMatchingWorkAreaAlignment(
       ? `${refWs.workAreaCode} — ${refWs.workAreaName}`
       : refWs.workAreaName,
     sections: baked,
+    sideKindKey: workAreaTypeUiKey(refWs.workAreaType),
   };
 }
 
@@ -1624,7 +1673,7 @@ function findMatchingBdbAlignment(
   addedFormat: import("./compare/versionCompareFormat.js").DiffFormat,
   deletedFormat: import("./compare/versionCompareFormat.js").DiffFormat,
   buildAlignment: VersionCompareEngine["buildVersionAlignmentSections"],
-): { sideTitle: string; sections: SectionData[] } | null {
+): { sideTitle: string; sections: SectionData[]; sideKindKey: string } | null {
   if (!parentWa) return null;
   const parentKey = waMatchKey(parentWa);
   const refParentWa = reference.workSpecs.find(
@@ -1647,6 +1696,7 @@ function findMatchingBdbAlignment(
   return {
     sideTitle: refBdb.name,
     sections: baked,
+    sideKindKey: "mainPane.kind.bdb",
   };
 }
 

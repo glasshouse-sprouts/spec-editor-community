@@ -17,8 +17,10 @@ import type { JSX } from "react";
 
 import { useT } from "../i18n/i18n.js";
 import { withMergedValue } from "../mergeApply.js";
+import { workAreaTypeUiKey } from "../pdf/documentTypes.js";
 import type {
   DiskDelta,
+  DiskEntityChange,
   DiskEntityKind,
   MergeConflict,
   MergeUnit,
@@ -26,6 +28,14 @@ import type {
 import { sanitizeBody } from "../sanitizeBody.js";
 import { MergeConflictRow, type Resolution } from "./MergeConflictRow.js";
 import { useEscToClose } from "./useEscToClose.js";
+
+/** i18n key for a disk-side change: a work area names its own type
+ *  (Task 147 B2.2); BDBs and control plans their kind. */
+function diskKindKey(c: DiskEntityChange): string {
+  return c.kind === "workArea"
+    ? workAreaTypeUiKey(c.workAreaType)
+    : DISK_KIND_KEY[c.kind];
+}
 
 /** i18n key for each top-level entity kind's display name. */
 const DISK_KIND_KEY: Record<DiskEntityKind, string> = {
@@ -154,7 +164,7 @@ export function ReloadMergeModal({
                   <span className="merge-modal__disk-tag">
                     {t("mergeModal.diskAdded")}
                   </span>
-                  {t(DISK_KIND_KEY[c.kind])}: {c.name}
+                  {t(diskKindKey(c))}: {c.name}
                 </li>
               ))}
               {diskDelta.removed.map((c, i) => (
@@ -165,7 +175,7 @@ export function ReloadMergeModal({
                   <span className="merge-modal__disk-tag">
                     {t("mergeModal.diskRemoved")}
                   </span>
-                  {t(DISK_KIND_KEY[c.kind])}: {c.name}
+                  {t(diskKindKey(c))}: {c.name}
                 </li>
               ))}
             </ul>

@@ -17,7 +17,8 @@
  * - **Cover page** (optional) — same `makeCover` chrome the spec PDF
  *   uses, so the document feels visually consistent with the
  *   per-spec exports it accompanies. Title is the user's project
- *   name; subtitle is the localized "Version summary" label.
+ *   name; the document type line above it says "Ændringsoversigt"
+ *   (Task 147 - it replaced the old subtitle with the same text).
  * - **Body** — a flat run of "spec sections", each a heading row
  *   followed by the revisions belonging to that spec (sections + CP
  *   rows + attachments interleaved per the same comparator the
@@ -51,6 +52,7 @@ import {
   STANDARD_PAGE_MARGINS_PT,
   type PdfChromeArgs,
 } from "./pdfChrome.js";
+import { VERSION_SUMMARY_DOCUMENT_TYPE } from "./documentTypes.js";
 
 /** Arguments the builder needs to produce a doc-def. */
 export interface BuildVersionSummaryArgs {
@@ -59,8 +61,11 @@ export interface BuildVersionSummaryArgs {
   /** Reference file's display name (e.g. "WIP …moliospec"), shown
    *  on the cover so the reader knows what was being compared. */
   referenceLabel: string | null;
-  /** Company-name placeholder, threaded through the chrome. */
-  companyName: string;
+  /** The project's bygherre for row 1 of the running header (Task 183). */
+  builder?: string | null;
+  /** The company name for the footer. No source yet (Task 185): callers
+   *  pass null and the cell stays empty - never a placeholder. */
+  companyName?: string | null;
   /** Footer date — defaults to today's ISO if not supplied. */
   dateText?: string | null;
   /** When false, skip the cover page and start at the summary list.
@@ -68,16 +73,16 @@ export interface BuildVersionSummaryArgs {
   includeCoverPage?: boolean;
   /** The full revision list, as produced by `compareVersions`. */
   revisions: ReadonlyArray<Revision>;
-  /**
-   * Localized strings — the builder is i18n-blind so callers feed
-   * the labels in. Lets tests use English literals without booting
-   * the i18n catalogs.
-   */
-  strings: SummaryStrings;
 }
 
-/** All localized strings the builder uses. */
-export interface SummaryStrings {
+/**
+ * The texts the builder prints. A PDF is always Danish, whatever language
+ * the app runs in (owner's decision on Task 183), so they live here like
+ * the other PDF builders' texts, not in the translation files (Task 186).
+ * Before, the caller passed them in from `versionSummary.*` in the
+ * catalogues, and an English app produced an English summary.
+ */
+interface SummaryStrings {
   /** Page title shown on the cover + body heading. */
   documentTitle: string;
   /** "Reference file:" label on the cover. */
@@ -98,6 +103,22 @@ export interface SummaryStrings {
   cpSlotLabel: Record<"design" | "production", string>;
 }
 
+/** The Danish texts - the wording the Danish catalogue had (Task 186). */
+const SUMMARY_STRINGS: SummaryStrings = {
+  documentTitle: VERSION_SUMMARY_DOCUMENT_TYPE,
+  referenceLabel: "Versionsreference:",
+  noChangesText: "Ingen ændringer fundet.",
+  sectionsHeader: "Sektioner",
+  cpRowsHeader: "Kontrolplanrækker",
+  attachmentsHeader: "Bilag",
+  kindLabel: { added: "TILFØJET", deleted: "FJERNET", modified: "ÆNDRET" },
+  wholeSpecCount: (count) => `${count} sektioner i alt.`,
+  cpSlotLabel: {
+    design: "Projektkontrolplan",
+    production: "Udførelseskontrolplan",
+  },
+};
+
 /** Pure builder. */
 export function buildVersionSummaryPdf(
   args: BuildVersionSummaryArgs,
@@ -105,18 +126,24 @@ export function buildVersionSummaryPdf(
   const {
     projectName,
     referenceLabel,
+    builder,
     companyName,
     dateText,
     includeCoverPage = true,
     revisions,
-    strings,
   } = args;
+  const strings = SUMMARY_STRINGS;
 
+  // The summary spans the whole project, so there is no single entreprise
+  // for the running header: its row 2 stays empty (Task 183). The cover
+  // uses its own contract-label slot for the reference file, below.
   const chromeArgs: PdfChromeArgs = {
     projectName: projectName ?? null,
+    builder: builder ?? null,
+    contractLabel: null,
     workAreaName: null,
     documentLabel: strings.documentTitle,
-    companyName,
+    companyName: companyName ?? null,
     dateText: dateText ?? todayISO(),
     revisionDateText: null,
   };
@@ -127,8 +154,11 @@ export function buildVersionSummaryPdf(
     content.push(
       ...makeCover({
         ...chromeArgs,
+        // Task 147: the document type IS "Ændringsoversigt", on its line
+        // above the title. The subtitle that used to repeat it is gone.
+        documentType: VERSION_SUMMARY_DOCUMENT_TYPE,
         title: projectName ?? strings.documentTitle,
-        subtitle: strings.documentTitle,
+        subtitle: null,
         revision: null,
         revisionDate: null,
         contractLabel: referenceLabel

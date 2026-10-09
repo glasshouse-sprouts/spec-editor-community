@@ -31,6 +31,18 @@ export {
 // makes the patch fail. Anything added before it just shifts the line
 // numbers, which patch handles.
 export { canonicalPath, samePath } from "./paths.js";
+// Task 155 - fiksdato -> versionDate for the reference-list lookup.
+// Not under molio-api/: it is pure date arithmetic, not API client
+// code. Main and the MCP server import it; the renderer must not
+// (see the file's own header).
+export {
+  isIsoDateOnly,
+  danishDayEndToVersionDate,
+  resolveReferencelistDate,
+  type ReferencelistDateCandidate,
+  type ReferencelistDateResolution,
+  type ReferencelistDateSource,
+} from "./referencelistDate.js";
 export {
   readMoliospec,
   readDbVersion,
@@ -79,6 +91,11 @@ export {
   type DeleteSummary,
   type DeleteImpact,
 } from "./writeStructural.js";
+export {
+  stampNewProjectIdentity,
+  type NewProjectIdentity,
+  type NewProjectIdentityOptions,
+} from "./newProject.js";
 export {
   createContract,
   deleteContract,

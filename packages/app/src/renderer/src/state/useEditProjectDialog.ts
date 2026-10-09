@@ -41,6 +41,21 @@ export interface UseEditProjectDialogArgs {
   setEdits: (updater: (m: EditMap) => EditMap) => void;
 }
 
+/**
+ * Task 155 - what `confirm` reports back, so the host can apply the
+ * owner's rule 5: when the project's reference-list date changes and
+ * work areas or BDBs carry their own, ask whether those should follow.
+ * The hook does not know about the other rows, so it only says THAT
+ * the date changed and what it changed to.
+ */
+export interface EditProjectConfirmResult {
+  /** True when the staged project date differs from the one the
+   *  dialog opened with. Compared on trimmed text. */
+  referencelistDateChanged: boolean;
+  /** The staged date, `null` when the field was cleared. */
+  newReferencelistDate: string | null;
+}
+
 export interface UseEditProjectDialogResult {
   /** Null when no dialog is open; otherwise the full dialog state. */
   dialog: EditProjectDialogState | null;
@@ -51,8 +66,9 @@ export interface UseEditProjectDialogResult {
   open: () => void;
   /** Cancel without saving. */
   cancel: () => void;
-  /** Flush all four fields through `setProjectField` and close. */
-  confirm: () => void;
+  /** Flush all four fields through `setProjectField` and close, and
+   *  report whether the reference-list date changed (Task 155). */
+  confirm: () => EditProjectConfirmResult;
 }
 
 export function useEditProjectDialog({
@@ -100,9 +116,16 @@ export function useEditProjectDialog({
     setDialog((d) => (d ? { ...d, ...p } : d));
   }, []);
 
-  const confirm = useCallback((): void => {
-    setDialog((d) => {
-      if (!d) return d;
+  // Task 155 - reads `dialog` from the closure rather than through a
+  // `setDialog` updater, because it has to RETURN something about the
+  // confirmed values. A state updater is not a place to compute a
+  // return value or run a side effect: React may call it twice.
+  const confirm = useCallback((): EditProjectConfirmResult => {
+    const d = dialog;
+    if (!d) {
+      return { referencelistDateChanged: false, newReferencelistDate: null };
+    }
+    {
       // NOT NULL fields: fall back to original if cleared.
       const nextName =
         d.name.trim().length === 0 ? d.originalName : d.name.trim();
@@ -149,9 +172,14 @@ export function useEditProjectDialog({
         );
         return next;
       });
-      return null;
-    });
-  }, [setEdits]);
+      setDialog(null);
+      return {
+        referencelistDateChanged:
+          nextRefDate !== (d.originalMolioReferencelistDate?.trim() || null),
+        newReferencelistDate: nextRefDate,
+      };
+    }
+  }, [dialog, setEdits]);
 
   return { dialog, patch, open, cancel, confirm };
 }

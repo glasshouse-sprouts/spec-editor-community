@@ -26,7 +26,11 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 
-import type { ReferenceLinks, SectionData } from "../../shared/ipc.js";
+import type {
+  MolioReferencelistDateInputs,
+  ReferenceLinks,
+  SectionData,
+} from "../../shared/ipc.js";
 import type { SectionKind } from "./edits.js";
 import type { LayoutMode } from "./layoutModePrefs.js";
 import type { PfbbChildContext } from "./pfbbChildContext.js";
@@ -62,6 +66,14 @@ interface Props {
   refs: ReferenceLinks;
   /** Kind of target this tab represents. Drives which sub-tabs are shown. */
   targetKind: RefPanelTargetKind;
+  /**
+   * Task 155 - the reference-list dates (fiksdato) for this tab,
+   * effective values including unsaved edits. Handed straight to the
+   * reference content seam; this view does not interpret them.
+   * Optional so the tab-only callers (tests) need not wire it, and
+   * ignored entirely by the Community build.
+   */
+  referencelistDates?: MolioReferencelistDateInputs;
   /** Which reference sub-tab is active, as remembered by App.
    *  `null` means "no explicit choice yet" → this view falls back to the
    *  per-target default (BDB with alignment → Work area, else Basis). */
@@ -84,6 +96,9 @@ interface Props {
   alignment: {
     sideTitle: string;
     sections: SectionData[];
+    /** i18n key for the right column's kind label (the parent work
+     *  area's own type, Task 147 B2.2). Omitted -> "aligned.workAreaKind". */
+    sideKindKey?: string;
   } | null;
   /**
    * Slice "Version compare" Phase E — same shape as `alignment`,
@@ -100,6 +115,8 @@ interface Props {
   versionAlignment?: {
     sideTitle: string;
     sections: SectionData[];
+    /** As `alignment.sideKindKey`: the reference document's own kind. */
+    sideKindKey?: string;
   } | null;
   /** Global "Compact view" toggle. When true, the content + aligned
    *  views and the TOC hide sections whose body has no content. */
@@ -157,6 +174,10 @@ interface Props {
 }
 
 const EMPTY_IDS: ReadonlySet<number> = new Set();
+/** Task 155 - a stable empty default, so a caller that passes nothing
+ *  does not hand the reference-content hook a fresh object on every
+ *  render and make it refetch. */
+const EMPTY_REFERENCELIST_DATES: MolioReferencelistDateInputs = {};
 
 export function SpecTabView({
   sections,
@@ -166,6 +187,7 @@ export function SpecTabView({
   onTocCollapsedNodeIdsChange,
   refs,
   targetKind,
+  referencelistDates = EMPTY_REFERENCELIST_DATES,
   refSubTab,
   onRefSubTabChange,
   refPanelCollapsed,
@@ -268,7 +290,11 @@ export function SpecTabView({
   // Instruction / Paradigm) and the standard-mode reference panel. Both null
   // in Community.
   const { alignment: molioAlignment, panel: referencePanel } =
-    referenceContentApi.useContent({ refs, effectiveSubTab });
+    referenceContentApi.useContent({
+      refs,
+      effectiveSubTab,
+      referencelistDates,
+    });
   const hasMolioAlignment = molioAlignment != null;
 
   // "Aligned mode" - the user picked a side-by-side sub-tab that has data:
@@ -283,7 +309,12 @@ export function SpecTabView({
     (isMolioContentTab && hasMolioAlignment);
   // The alignment record actually used by the right column. Picks between the
   // three variants based on which sub-tab is active and what's loaded.
-  const activeAlignment =
+  // Task 147 B2.2: one shape for all three sources. Molio's own content
+  // has no sideKindKey, and the right column then keeps its old label.
+  const activeAlignment:
+    | { sideTitle: string; sections: SectionData[]; sideKindKey?: string }
+    | null
+    | undefined =
     isMolioContentTab && hasMolioAlignment
       ? molioAlignment
       : effectiveSubTab === "versionReference" && hasVersionAlignment
@@ -523,6 +554,7 @@ export function SpecTabView({
               leftRevision={specProps.revision}
               leftRevisionDate={specProps.revisionDate}
               rightTitle={activeAlignment.sideTitle}
+              rightKindKey={activeAlignment.sideKindKey}
               childContext={
                 effectiveSubTab === "versionReference"
                   ? undefined

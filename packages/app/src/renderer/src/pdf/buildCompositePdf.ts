@@ -43,7 +43,11 @@ import {
 /** One chapter in a composite PDF — a single spec's worth of content. */
 export interface CompositePdfChapter {
   kind: SpecKind;
-  /** Chapter heading (e.g. the BDB's name or work_area's "code — name"). */
+  /** A work-area chapter's own type (0/1/2) for its "Type:" line (Task
+   *  147). Ignored for BDB chapters. */
+  workAreaType?: number | null;
+  /** Chapter heading (the BDB's name, or a work area's "code name" -
+   *  see formatWorkAreaTitle). */
   title: string;
   /** Smaller heading printed under the title. Hidden when null/empty. */
   subtitle?: string | null;
@@ -66,14 +70,22 @@ export interface BuildCompositePdfArgs {
    * this so every page reads as one document.
    */
   cover: {
+    /** The document type above the cover title (Task 147) - one of the
+     *  composite texts from `compositeDocumentType`. */
+    documentType: string;
     title: string;
     subtitle?: string | null;
     projectName?: string | null;
+    /** Entreprise for the cover and row 2 of the running header (Task
+     *  183). Null (e.g. a whole-project composite) prints an empty cell. */
     contractLabel?: string | null;
+    /** The project's bygherre for row 1 of the running header (Task 183). */
+    builder?: string | null;
     revision?: string | null;
     revisionDate?: string | null;
     dateText?: string;
-    companyName: string;
+    /** No source yet (Task 185) - callers pass null, the cell stays empty. */
+    companyName?: string | null;
     /** Document-label used in the running header's row 4. Defaults to the
      *  cover title. Caller can pass a shorter label here. */
     documentLabel?: string;
@@ -132,9 +144,11 @@ export function buildCompositePdf(
 
   const chromeArgs: PdfChromeArgs = {
     projectName: cover.projectName ?? null,
+    builder: cover.builder ?? null,
+    contractLabel: cover.contractLabel ?? null,
     workAreaName: cover.workAreaName ?? null,
     documentLabel: cover.documentLabel ?? cover.title,
-    companyName: cover.companyName,
+    companyName: cover.companyName ?? null,
     dateText: cover.dateText ?? todayISO(),
     revisionDateText: cover.revisionDate ?? null,
   };
@@ -146,6 +160,7 @@ export function buildCompositePdf(
     content.push(
       ...makeCover({
         ...chromeArgs,
+        documentType: cover.documentType,
         title: cover.title,
         subtitle: cover.subtitle ?? null,
         revision: cover.revision ?? null,
@@ -175,8 +190,8 @@ export function buildCompositePdf(
 
   // Chapter contents ----------------------------------------------------
   // Empty composites still produce a (cover + empty TOC) PDF rather
-  // than throw — matches the editor's "(no sections)" placeholder
-  // behaviour from the single-spec builder.
+  // than throw — matches the "(ingen afsnit)" placeholder behaviour
+  // of the single-spec builder.
   chapters.forEach((chapter, i) => {
     // Page break BEFORE each chapter (except the first if there's
     // no cover + no TOC, since we'd start on page 1 with one). The
@@ -204,14 +219,16 @@ export function buildCompositePdf(
     // per-chapter call.
     const sub: BuildSpecPdfArgs = {
       kind: chapter.kind,
+      workAreaType: chapter.workAreaType ?? null,
       title: chapter.title,
       subtitle: chapter.subtitle ?? null,
       revision: chapter.revision ?? null,
       revisionDate: chapter.revisionDate ?? null,
       projectName: cover.projectName ?? null,
       contractLabel: cover.contractLabel ?? null,
+      builder: cover.builder ?? null,
       workAreaName: chapter.kind === "workSpec" ? chapter.title : null,
-      companyName: cover.companyName,
+      companyName: cover.companyName ?? null,
       includeCoverPage: false,
       includeToc: false,
       compact,

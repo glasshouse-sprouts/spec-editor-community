@@ -57,6 +57,10 @@ import type {
   ExportTreeContractGroup,
   ExportTreeWorkAreaNode,
 } from "./exportTree.js";
+import {
+  compositeDocumentType,
+  type CompositeScope,
+} from "./pdf/documentTypes.js";
 
 /** How the export modal groups output files. */
 export type ExportGroupBy =
@@ -72,7 +76,8 @@ export interface CompositeChapterPlan {
   targetId: number;
   /** Display title for the chapter heading. */
   title: string;
-  /** Optional subtitle (e.g. WA code, BDB revision). */
+  /** Optional subtitle. A work area's code is NOT put here - it is
+   *  already in front of the title (Task 145). */
   subtitle: string | null;
 }
 
@@ -95,6 +100,9 @@ export type PdfExportJob =
       kind: "composite";
       filename: string;
       cover: {
+        /** Document type above the cover title, derived from what this
+         *  PDF contains (Task 147, see `compositeDocumentType`). */
+        documentType: string;
         title: string;
         subtitle: string | null;
         contractLabel: string | null;
@@ -327,6 +335,12 @@ function buildWorkAreaCompositeJob(
     kind: "composite",
     filename: `${projectName}_${sanitiseFilePart(wa.label)}.pdf`,
     cover: {
+      documentType: compositeDocumentType({
+        scope: "workArea",
+        hasWorkAreas: true,
+        hasBdbs: checkedBdbs.length > 0,
+        workAreaType: wa.workAreaType,
+      }),
       title: wa.label,
       subtitle: group.label,
       contractLabel: group.label,
@@ -373,6 +387,7 @@ function buildPerContractJobs(
       kind: "composite",
       filename: `${projectName}_${sanitiseFilePart(group.label)}.pdf`,
       cover: {
+        documentType: compositeDocumentTypeFor("contract", chapters),
         title: group.label,
         subtitle: null,
         contractLabel: group.label,
@@ -438,6 +453,7 @@ function buildPerProjectJobs(
       kind: "composite",
       filename: `${projectName}.pdf`,
       cover: {
+        documentType: compositeDocumentTypeFor("project", chapters),
         title: projectName,
         subtitle: null,
         contractLabel: null,
@@ -446,4 +462,19 @@ function buildPerProjectJobs(
     },
     ...cpJobs,
   ];
+}
+
+/**
+ * The contract / project composite's document type, from the kinds of
+ * chapter it actually holds (Task 147).
+ */
+function compositeDocumentTypeFor(
+  scope: Exclude<CompositeScope, "workArea">,
+  chapters: readonly CompositeChapterPlan[],
+): string {
+  return compositeDocumentType({
+    scope,
+    hasWorkAreas: chapters.some((c) => c.kind === "workSpec"),
+    hasBdbs: chapters.some((c) => c.kind === "bdb"),
+  });
 }

@@ -36,6 +36,7 @@ import {
   makeHeader,
   type PdfChromeArgs,
 } from "./pdfChrome.js";
+import { CONTROL_PLAN_DOCUMENT_TYPE } from "./documentTypes.js";
 
 /**
  * Input to the CP builder. Intentionally doesn't take the full
@@ -55,8 +56,16 @@ export interface BuildCpPdfArgs {
   revisionDate?: string | null;
   /** Project name shown in the small metadata block + chrome. */
   projectName?: string | null;
-  /** Contract label for the cover only (BIPS header has no slot). */
+  /**
+   * Contract label (the entreprise). Printed on the cover AND in row 2
+   * of the running header (Task 183). Null prints an empty cell.
+   */
   contractLabel?: string | null;
+  /**
+   * The project's bygherre (`project.builder`) for row 1 of the running
+   * header (Task 183). Null prints an empty cell.
+   */
+  builder?: string | null;
   /**
    * Name of the parent work area — printed in row 3 (left column) of
    * the BIPS running header. For CP PDFs this is the work area that
@@ -70,10 +79,10 @@ export interface BuildCpPdfArgs {
    */
   dateText?: string;
   /**
-   * Footer-left literal text. Icebox #119 — for now the caller
-   * passes the hard-coded `"Company name"`.
+   * The company name for the footer and the foot of the built-in cover. No
+   * source yet (Task 185): callers pass null and the cell stays empty.
    */
-  companyName: string;
+  companyName?: string | null;
   /** Cover page on/off. Defaults to true. */
   includeCoverPage?: boolean;
   /** Leave page 1 blank for a custom cover put on after rendering (see
@@ -172,6 +181,7 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
     revisionDate,
     projectName,
     contractLabel,
+    builder,
     workAreaName,
     dateText,
     companyName,
@@ -190,9 +200,11 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
 
   const chromeArgs: PdfChromeArgs = {
     projectName: projectName ?? null,
+    builder: builder ?? null,
+    contractLabel: contractLabel ?? null,
     workAreaName: workAreaName ?? null,
     documentLabel,
-    companyName,
+    companyName: companyName ?? null,
     dateText: dateText ?? todayISO(),
     revisionDateText: revisionDate ?? null,
   };
@@ -204,13 +216,15 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
     content.push(
       ...makeCover({
         ...chromeArgs,
+        // Task 147: document type above the title.
+        documentType: CONTROL_PLAN_DOCUMENT_TYPE,
         title: fullTitle,
         subtitle: ownerLabel ?? null,
         revision: revision ?? null,
         revisionDate: revisionDate ?? null,
         contractLabel: contractLabel ?? null,
         // CP PDFs are landscape — use tighter vertical spacers so the
-        // cover fits on page 1 instead of spilling a "Company name"
+        // cover fits on page 1 instead of spilling the company-name
         // line onto page 2.
         orientation: "landscape",
       }),
@@ -227,10 +241,11 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
   }
 
   // Small metadata block ------------------------------------------------
-  const metaLines: string[] = ["Kind: Control plan"];
-  if (projectName) metaLines.push(`Project: ${projectName}`);
+  // Danish labels: the PDF is always Danish (Task 183).
+  const metaLines: string[] = [`Type: ${CONTROL_PLAN_DOCUMENT_TYPE}`];
+  if (projectName) metaLines.push(`Projekt: ${projectName}`);
   if (revision) metaLines.push(`Revision: ${revision}`);
-  if (revisionDate) metaLines.push(`Revision date: ${revisionDate}`);
+  if (revisionDate) metaLines.push(`Revisionsdato: ${revisionDate}`);
   content.push({ text: metaLines.join("   ·   "), style: "meta" });
 
   // Table ---------------------------------------------------------------
@@ -238,7 +253,7 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
   const hasAnyRows = groups.some((g) => g.rows.length > 0);
   if (!hasAnyRows) {
     content.push({
-      text: "(no control-plan rows)",
+      text: "(ingen rækker i kontrolplanen)",
       style: "empty",
       italics: true,
     });

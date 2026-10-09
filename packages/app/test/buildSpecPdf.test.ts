@@ -72,7 +72,6 @@ function defaultArgs(): Parameters<typeof buildSpecPdf>[0] {
     kind: "workSpec",
     title: "T",
     sections: [],
-    companyName: "Company name",
     htmlConverter: fakeHtml,
     // Off by default in tests so older assertions stay valid — each
     // test opts in when it wants to check the cover.
@@ -93,9 +92,9 @@ describe("buildSpecPdf", () => {
     const content = doc.content as Content[];
     expect(textAt(content, 0)).toBe("My spec");
     expect(textAt(content, 1)).toBe("2.5");
-    expect(textAt(content, 2)).toContain("Kind: Arbejdsbeskrivelse");
-    expect(textAt(content, 2)).toContain("Project: Test project");
-    expect(textAt(content, 3)).toBe("(no sections)");
+    expect(textAt(content, 2)).toContain("Type: Arbejdsbeskrivelse");
+    expect(textAt(content, 2)).toContain("Projekt: Test project");
+    expect(textAt(content, 3)).toBe("(ingen afsnit)");
   });
 
   it("labels BDB correctly and omits empty metadata fields", () => {
@@ -108,8 +107,8 @@ describe("buildSpecPdf", () => {
     // With no subtitle / project / revision, the meta line is just the kind
     // label, which now uses the full domain term (i18n sweep, 2026-06-12).
     expect(textAt(content, 0)).toBe("Fundering");
-    expect(textAt(content, 1)).toBe("Kind: Bygningsdelsbeskrivelse");
-    expect(textAt(content, 1)).not.toContain("Project");
+    expect(textAt(content, 1)).toBe("Type: Bygningsdelsbeskrivelse");
+    expect(textAt(content, 1)).not.toContain("Projekt");
     expect(textAt(content, 1)).not.toContain("Revision");
   });
 
@@ -142,7 +141,7 @@ describe("buildSpecPdf", () => {
     const content = doc.content as Content[];
     const meta = textAt(content, 1);
     expect(meta).toContain("Revision: B");
-    expect(meta).toContain("Revision date: 2026-04-19");
+    expect(meta).toContain("Revisionsdato: 2026-04-19");
   });
 
   it("skips empty bodies silently (no call to htmlConverter)", () => {
@@ -191,13 +190,14 @@ describe("buildSpecPdf", () => {
       includeCoverPage: true,
       title: "Cover title",
       projectName: "Project 42",
+      companyName: "ACME ApS",
     });
     const texts = allTexts(doc.content as Content[]);
     // Cover contributes the big title + company name before the
     // ordinary title block further down.
     expect(texts).toContain("Cover title");
     expect(texts).toContain("Project 42");
-    expect(texts).toContain("Company name");
+    expect(texts).toContain("ACME ApS");
     // Exactly one node in the document should be marked as a
     // page-break-after — the cover's tail text.
     const breaks = (doc.content as Content[]).filter(
@@ -297,6 +297,44 @@ describe("buildSpecPdf", () => {
     expect((coverFn(1, 5) as { text?: string }).text).toBe("");
   });
 
+  it("prints the bygherre and the entreprise in the running header (Task 183)", () => {
+    const doc = buildSpecPdf({
+      ...defaultArgs(),
+      projectName: "My project",
+      builder: "A.P. Møller-Mærsk",
+      contractLabel: "E11 - Belægning",
+    });
+    const texts = collectAllText(
+      (doc.header as (p: number, pc: number) => unknown)(2, 5),
+    );
+    expect(texts).toContain("A.P. Møller-Mærsk");
+    expect(texts).toContain("E11 - Belægning");
+  });
+
+  it("leaves the bygherre and entreprise cells empty when they are missing (Task 183)", () => {
+    const doc = buildSpecPdf({ ...defaultArgs(), projectName: "My project" });
+    const texts = collectAllText(
+      (doc.header as (p: number, pc: number) => unknown)(2, 5),
+    );
+    // Both cells are present but empty - no "[Bygherre]" style placeholder.
+    expect(texts.filter((t) => t === "").length).toBeGreaterThanOrEqual(2);
+    expect(texts.join("|")).not.toMatch(/\[|\]|Bygherre|Entreprise/);
+  });
+
+  it("emits no TOC page for a spec with nothing to list (Task 183)", () => {
+    const doc = buildSpecPdf({
+      ...defaultArgs(),
+      includeToc: true,
+      sections: [],
+    });
+    const content = doc.content as Content[];
+    const tocNodes = content.filter(
+      (n) => n && typeof n === "object" && "toc" in n,
+    );
+    expect(tocNodes.length).toBe(0);
+    expect(allTexts(content)).toContain("(ingen afsnit)");
+  });
+
   it("prints the literal 'Arbejdsbeskrivelse' on row 4 for work-area PDFs", () => {
     const doc = buildSpecPdf({
       ...defaultArgs(),
@@ -344,24 +382,25 @@ describe("buildSpecPdf", () => {
     expect(texts).toContain("2  Empty");
   });
 
-  it("builds a running footer with company name + page N of M", () => {
+  it("builds a running footer with the company name and no page number (Task 183)", () => {
     const doc = buildSpecPdf({
       ...defaultArgs(),
-      companyName: "Company name",
+      companyName: "ACME ApS",
     });
     const fn = doc.footer as (p: number, pc: number) => unknown;
     const footer = fn(3, 7);
     const texts = collectAllText(footer);
-    expect(texts).toContain("Company name");
-    expect(texts).toContain("Page 3 of 7");
+    expect(texts).toContain("ACME ApS");
+    // The page number lives in the header ("Side 3/7"), not the footer.
+    expect(texts.join("|")).not.toMatch(/Page|3\/7|3 of 7/);
     // defaultArgs() has includeCoverPage: false, so there is no built-in
     // cover page to keep clean - page 1 carries the footer too.
-    expect(collectAllText(fn(1, 7))).toContain("Company name");
+    expect(collectAllText(fn(1, 7))).toContain("ACME ApS");
 
     // With the built-in cover ON, page 1 stays clean.
     const withCover = buildSpecPdf({
       ...defaultArgs(),
-      companyName: "Company name",
+      companyName: "ACME ApS",
       includeCoverPage: true,
     });
     const coverFn = withCover.footer as (p: number, pc: number) => unknown;
@@ -843,7 +882,8 @@ describe("buildSpecPdf - reserveCoverPage (Task 173)", () => {
     expect((footer(1, 5) as { text?: string }).text).toBe("");
     // pdfmake counts the reserved page, so page 2 is numbered 2 - no offset.
     expect(collectAllText(header(2, 5))).toContain("2/5");
-    expect(collectAllText(footer(2, 5))).toContain("Page 2 of 5");
+    // Task 183: the footer carries no page number any more.
+    expect(collectAllText(footer(2, 5)).join("|")).not.toContain("Page");
   });
 
   it("is off by default - page 1 is body and carries the header", () => {

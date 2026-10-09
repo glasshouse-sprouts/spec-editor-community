@@ -14,8 +14,10 @@
  *   - 7.3 added "Compact" + the batch-export modal.
  *   - 10H.10 kept just the modal entry point.
  *
- * `companyName` is still the literal string "Company name" — see
- * Icebox #119 for real storage.
+ * The company name in the PDF footer and on the built-in cover comes from
+ * the "Firmanavn" app setting (Task 185), passed in as
+ * `BuildOptions.companyName` by the caller. Empty setting -> empty cell,
+ * never a placeholder (Task 183).
  */
 
 import type {
@@ -30,13 +32,21 @@ import {
   findControlPlanById,
   findWorkSpecById,
 } from "./loaded.js";
-import { formatContractLabel } from "./ExportCardLabels.js";
+import {
+  formatContractLabel,
+  formatWorkAreaTitle,
+  workAreaHeaderLabel,
+} from "./ExportCardLabels.js";
 import {
   isInlinableImageMime,
   type AttachmentAppendixEntry,
   type PfbbChildPdfOverlay,
 } from "./pdf/buildSpecPdf.js";
 import { renderCpPdf, renderSpecPdf } from "./pdf/renderPdf.js";
+import {
+  CONTROL_PLAN_DOCUMENT_TYPE,
+  specDocumentType,
+} from "./pdf/documentTypes.js";
 import { buildMergedChildView } from "./pfbbMergedView.js";
 import type { MarkKind } from "./highlights/markKinds.js";
 import { stripHighlights } from "./highlights/stripHighlights.js";
@@ -59,9 +69,6 @@ interface Props {
    */
   onOpenExport: () => void;
 }
-
-/** Literal text used in the PDF footer until Icebox #119 lands. */
-const COMPANY_NAME_PLACEHOLDER = "Company name";
 
 /** One row in the "pick what to export" dropdown. */
 export type ExportTarget =
@@ -130,7 +137,7 @@ export function buildTargets(data: FilePayload): ExportTarget[] {
   for (const ws of data.workSpecs) {
     const name = ws.workAreaName || tStatic("exportCard.unnamedWorkArea");
     const code = ws.workAreaCode ?? "";
-    const label = code ? `${code} ${name}` : name;
+    const label = formatWorkAreaTitle(code, name);
     out.push({
       kind: "workSpec",
       id: ws.id,
@@ -247,6 +254,13 @@ export function resolveTarget(
 export interface BuildOptions {
   includeCoverPage: boolean;
   /**
+   * The "Firmanavn" app setting (Task 185), already trimmed - see
+   * `companyNameForPdf`. Printed in the footer and at the foot of the
+   * built-in cover. Null or omitted -> empty cell. A custom cover keeps
+   * its own company name from the template.
+   */
+  companyName?: string | null;
+  /**
    * Include a table of contents in spec PDFs (work area / BDB). On by
    * default. CP PDFs have no TOC and ignore this flag. Passed straight
    * through to `buildSpecPdf` / `buildCompositePdf`, which already
@@ -321,7 +335,12 @@ export async function buildBytesFor(
   opts: BuildOptions,
 ): Promise<Uint8Array> {
   const projectName = data.project?.name ?? null;
-  const companyName = COMPANY_NAME_PLACEHOLDER;
+  // Task 183: the running header shows the bygherre and the entreprise.
+  // Same source as the custom cover's context below (the loaded file),
+  // so the cover and the header can never disagree.
+  const builder = data.project?.builder ?? null;
+  // Task 185: the company name from the app setting, for every PDF type.
+  const companyName = opts.companyName ?? null;
   // Custom cover (Glasshouse). When a template is active we suppress the
   // built-in auto cover and wrap the finished body with the custom one.
   // `opts.cover` is undefined in Community → identical to before.
@@ -377,16 +396,28 @@ export async function buildBytesFor(
       data.path,
       data.attachments.filter((a) => a.workSpecId === target.id),
     );
+    // Task 145: the code goes IN FRONT of the title ("S215.01
+    // Skeletkonstruktion, let"), the same string the composite export
+    // uses as cover and chapter title. It used to sit on its own line
+    // under the name (subtitle); that line is gone so the code is not
+    // printed twice.
+    const wsTitle = formatWorkAreaTitle(
+      ws.workAreaCode,
+      ws.workAreaName?.trim() || tStatic("exportCard.unnamedWorkArea"),
+    );
     const wsBytes = await renderSpecPdf({
       kind: "workSpec",
-      title: ws.workAreaName || tStatic("exportCard.unnamedWorkArea"),
-      subtitle: ws.workAreaCode ?? null,
+      // Task 147: the document type on the cover is the work area's own.
+      workAreaType: ws.workAreaType,
+      title: wsTitle,
+      subtitle: null,
       revision: ws.revision ?? null,
       revisionDate: ws.revisionDate ?? null,
       projectName,
       contractLabel: target.contractLabel,
-      // Row 3 of BIPS header: a work area's own name.
-      workAreaName: ws.workAreaName ?? null,
+      // Row 3 of BIPS header: the work area's own "code name" (Task 145).
+      workAreaName: workAreaHeaderLabel(ws),
+      builder,
       companyName,
       includeCoverPage: includeAutoCover,
       // A custom cover replaces a blank page 1 after rendering, so pdfmake
@@ -403,11 +434,13 @@ export async function buildBytesFor(
       projectNumber: data.project?.projectNumber ?? null,
       builder: data.project?.builder ?? null,
       dateText: exportDate,
-      specTitle: ws.workAreaName || tStatic("exportCard.unnamedWorkArea"),
+      specTitle: wsTitle,
       revision: ws.revision ?? null,
       revisionDate: ws.revisionDate ?? null,
       contractLabel: target.contractLabel,
-      workAreaName: ws.workAreaName ?? null,
+      workAreaName: workAreaHeaderLabel(ws),
+      // Task 147 B2.1: same value as the built-in cover.
+      documentType: specDocumentType("workSpec", ws.workAreaType),
     });
   }
 
@@ -531,7 +564,8 @@ export async function buildBytesFor(
       revisionDate: bdb.revisionDate ?? null,
       projectName,
       contractLabel: target.contractLabel,
-      workAreaName: parentWa?.workAreaName ?? null,
+      workAreaName: workAreaHeaderLabel(parentWa),
+      builder,
       companyName,
       includeCoverPage: includeAutoCover,
       // A custom cover replaces a blank page 1 after rendering, so pdfmake
@@ -552,7 +586,8 @@ export async function buildBytesFor(
       revision: bdb.revision ?? null,
       revisionDate: bdb.revisionDate ?? null,
       contractLabel: target.contractLabel,
-      workAreaName: parentWa?.workAreaName ?? null,
+      workAreaName: workAreaHeaderLabel(parentWa),
+      documentType: specDocumentType("bdb", null),
     });
   }
 
@@ -574,7 +609,8 @@ export async function buildBytesFor(
     ownerLabel: target.ownerLabel,
     projectName,
     contractLabel: target.contractLabel,
-    workAreaName: cpWa?.workAreaName ?? null,
+    workAreaName: workAreaHeaderLabel(cpWa),
+    builder,
     companyName,
     includeCoverPage: includeAutoCover,
     reserveCoverPage: opts.cover != null,
@@ -590,7 +626,8 @@ export async function buildBytesFor(
     revision: null,
     revisionDate: null,
     contractLabel: target.contractLabel,
-    workAreaName: cpWa?.workAreaName ?? null,
+    workAreaName: workAreaHeaderLabel(cpWa),
+    documentType: CONTROL_PLAN_DOCUMENT_TYPE,
   });
 }
 

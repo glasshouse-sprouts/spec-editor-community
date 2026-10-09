@@ -94,6 +94,9 @@ export interface DiskEntityChange {
   kind: DiskEntityKind;
   /** The entity's display name. */
   name: string;
+  /** Work areas only: `work_area_type` (0/1/2), so the dialog can name
+   *  the document's own type (Task 147 B2.2). */
+  workAreaType?: number;
 }
 
 /** Top-level additions / removals the disk made on its own. */
@@ -153,6 +156,21 @@ export function editsContainStructural(edits: EditRequest[]): boolean {
 
 /** Normalise any field value to a string for comparison + display.
  *  null / undefined → "", booleans → "0"/"1", everything else → String. */
+/**
+ * Read a field by name, or by a dotted path for the few entity
+ * fields that are nested (Task 155: `refs.referencelistAreaDate`).
+ * A missing segment yields undefined, which `norm` turns into "".
+ */
+function readPath(obj: Record<string, unknown>, path: string): unknown {
+  if (!path.includes(".")) return obj[path];
+  let cur: unknown = obj;
+  for (const seg of path.split(".")) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return cur;
+}
+
 function norm(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "boolean") return v ? "1" : "0";
@@ -282,6 +300,17 @@ const BDB_META_FIELDS = [
   "reviewedBy",
   "approvedBy",
 ] as const;
+/**
+ * Task 155 - the reference-list date is the first metadata field that
+ * does NOT sit at the top level of its entity: both WorkSpecInfo and
+ * BdbInfo carry it inside `refs`. The map value is therefore a dotted
+ * path, which `handleMeta` resolves. Left out of the identity lists
+ * above on purpose - an unmapped field produces no merge unit at all,
+ * and a date edit would then vanish on a reload-with-conflicts.
+ */
+const REFERENCELIST_DATE_FIELD_MAP: Record<string, string> = {
+  referencelistAreaDate: "refs.referencelistAreaDate",
+};
 const CP_META_FIELDS = ["revision", "revisionDate", "numberText"] as const;
 const CONTRACT_FIELDS = ["contractCode", "contractName"] as const;
 const CP_HEADER_FIELDS = ["header", "headerNo"] as const;
@@ -316,8 +345,8 @@ function handleMeta(
     if (!(editField in e)) continue; // field not set by this edit
     const editVal = e[editField];
     const mine = norm(editVal);
-    const base = baseEntity ? norm(baseEntity[entityField]) : "";
-    const theirs = diskEntity ? norm(diskEntity[entityField]) : null;
+    const base = baseEntity ? norm(readPath(baseEntity, entityField)) : "";
+    const theirs = diskEntity ? norm(readPath(diskEntity, entityField)) : null;
     const outcome = classify(base, mine, theirs);
     if (outcome === "skip") continue;
     const singleEdit = {
@@ -441,7 +470,10 @@ function handleEdit(
         diskIx.workSpecs.get(edit.id) as unknown as
           | Record<string, unknown>
           | undefined,
-        identityMap(WS_META_FIELDS),
+        {
+          ...identityMap(WS_META_FIELDS),
+          ...REFERENCELIST_DATE_FIELD_MAP,
+        },
         route,
       );
       return;
@@ -456,7 +488,10 @@ function handleEdit(
         diskIx.bdbs.get(edit.id) as unknown as
           | Record<string, unknown>
           | undefined,
-        identityMap(BDB_META_FIELDS),
+        {
+          ...identityMap(BDB_META_FIELDS),
+          ...REFERENCELIST_DATE_FIELD_MAP,
+        },
         route,
       );
       return;
@@ -551,14 +586,19 @@ export function computeDiskDelta(
     diskList: readonly T[],
     kind: DiskEntityKind,
     nameOf: (t: T) => string,
+    typeOf?: (t: T) => number,
   ): void {
+    const entry = (t: T): DiskEntityChange =>
+      typeOf
+        ? { kind, name: nameOf(t), workAreaType: typeOf(t) }
+        : { kind, name: nameOf(t) };
     const baseIds = new Set(baseList.map((t) => t.id));
     const diskIds = new Set(diskList.map((t) => t.id));
     for (const t of diskList) {
-      if (!baseIds.has(t.id)) added.push({ kind, name: nameOf(t) });
+      if (!baseIds.has(t.id)) added.push(entry(t));
     }
     for (const t of baseList) {
-      if (!diskIds.has(t.id)) removed.push({ kind, name: nameOf(t) });
+      if (!diskIds.has(t.id)) removed.push(entry(t));
     }
   }
 
@@ -567,6 +607,7 @@ export function computeDiskDelta(
     disk.workSpecs,
     "workArea",
     (w) => w.workAreaName || w.workAreaCode || `#${w.id}`,
+    (w) => w.workAreaType,
   );
   diff(base.bdbs, disk.bdbs, "bdb", (b) => b.name || `#${b.id}`);
   diff(

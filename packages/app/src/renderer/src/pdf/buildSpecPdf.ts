@@ -30,6 +30,7 @@ import {
   STANDARD_PAGE_MARGINS_PT,
   type PdfChromeArgs,
 } from "./pdfChrome.js";
+import { specDocumentType } from "./documentTypes.js";
 
 /** Kind of spec this PDF is for. Affects the "Kind" metadata label. */
 export type SpecKind = "workSpec" | "bdb";
@@ -173,21 +174,43 @@ export interface PfbbChildPdfOverlay {
 export interface BuildSpecPdfArgs {
   /** "Work area" or "BDB" — printed under the title. */
   kind: SpecKind;
+  /**
+   * The work area's own type (`work_spec.work_area_type`: 0
+   * Arbejdsbeskrivelse, 1 Fælles beskrivelse, 2 Paradigme for
+   * arbejdsbeskrivelse). Decides the document type on the cover and in the
+   * "Type:" line (Task 147). Ignored for BDBs. Missing or unknown prints
+   * "Arbejdsbeskrivelse".
+   */
+  workAreaType?: number | null;
   /** Headline shown at the top of page one. */
   title: string;
-  /** Optional subtitle (e.g. work-area code). Hidden when null/empty. */
+  /**
+   * Optional subtitle, printed under the title. Hidden when null/empty.
+   * Work-area exports no longer use it for the code: since Task 145 the
+   * code is part of the title ("S215.01 Skeletkonstruktion, let").
+   */
   subtitle?: string | null;
   /** Optional "revision X — date Y" pair. Both can be null. */
   revision?: string | null;
   revisionDate?: string | null;
   /** Project name shown in the small metadata block + chrome. */
   projectName?: string | null;
-  /** Contract label (e.g. "01 - Fagentreprise") for the cover. */
+  /**
+   * Contract label (the entreprise, e.g. "E11 - Belægning"). Printed on
+   * the cover AND in row 2 of the running header (Task 183). Null
+   * prints an empty cell.
+   */
   contractLabel?: string | null;
   /**
-   * Name of the parent work area, used by the BIPS-style running
-   * header (row 3 left). For work-area PDFs pass the WA's own name;
-   * for BDB PDFs pass the parent WA's name. Null prints blank.
+   * The project's bygherre (`project.builder`) for row 1 of the running
+   * header (Task 183). Null prints an empty cell.
+   */
+  builder?: string | null;
+  /**
+   * The work area for the BIPS-style running header (row 3 left), as
+   * "<code> <name>" (Task 145 - see workAreaHeaderLabel). For work-area
+   * PDFs pass the WA itself; for BDB PDFs the parent WA. Null prints
+   * blank.
    */
   workAreaName?: string | null;
   /**
@@ -198,11 +221,11 @@ export interface BuildSpecPdfArgs {
    */
   dateText?: string;
   /**
-   * Literal string for the footer left cell. Icebox #119 tracks where
-   * this eventually comes from; for now the caller passes
-   * `"Company name"`.
+   * The company name for the footer left cell and the foot of the built-in
+   * cover. There is no source yet (Task 185), so callers pass null and
+   * the cell stays empty - never a placeholder (Task 183).
    */
-  companyName: string;
+  companyName?: string | null;
   /**
    * When true (default), a cover page is rendered as page 1 with a
    * forced page break after. When false, the PDF starts straight on
@@ -290,12 +313,14 @@ export interface BuildSpecPdfArgs {
 export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
   const {
     kind,
+    workAreaType,
     title,
     subtitle,
     revision,
     revisionDate,
     projectName,
     contractLabel,
+    builder,
     workAreaName,
     dateText,
     companyName,
@@ -319,19 +344,24 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
     ? (html) => htmlConverter(stripBody(html))
     : htmlConverter;
 
-  const kindLabel =
-    kind === "workSpec" ? "Arbejdsbeskrivelse" : "Bygningsdelsbeskrivelse";
+  // Task 147: the document type - the work area's own type, or
+  // "Bygningsdelsbeskrivelse". The cover and the "Type:" line below both
+  // print this one value, so they cannot disagree.
+  const kindLabel = specDocumentType(kind, workAreaType);
 
-  // Row 4 of the BIPS header: for work-area PDFs we print the literal
-  // Danish "Arbejdsbeskrivelse" (lit. "Work description") — Tore's
-  // call — and for BDB PDFs we print the BDB's own name.
-  const documentLabel = kind === "workSpec" ? "Arbejdsbeskrivelse" : title;
+  // Row 4 of the BIPS header: for work-area PDFs the work area's own
+  // type - the same value as the cover, so a Fælles beskrivelse says
+  // "Fælles beskrivelse" from page 2 too (Task 147, owner 2026-10-08);
+  // for BDB PDFs the BDB's own name.
+  const documentLabel = kind === "workSpec" ? kindLabel : title;
 
   const chromeArgs: PdfChromeArgs = {
     projectName: projectName ?? null,
+    builder: builder ?? null,
+    contractLabel: contractLabel ?? null,
     workAreaName: workAreaName ?? null,
     documentLabel,
-    companyName,
+    companyName: companyName ?? null,
     dateText: dateText ?? todayISO(),
     revisionDateText: revisionDate ?? null,
   };
@@ -343,6 +373,7 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
     content.push(
       ...makeCover({
         ...chromeArgs,
+        documentType: kindLabel,
         title,
         subtitle: subtitle ?? null,
         revision: revision ?? null,
@@ -370,8 +401,19 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
     );
   }
 
+  // Build the tree, then apply the Compact filter when asked. Compact
+  // strips sections whose body is visually empty, keeping parents when
+  // any descendant survived so numbering still makes sense. A fully
+  // empty spec under Compact falls through to the "(ingen afsnit)"
+  // placeholder below — by design: the user said "still produce the PDF".
+  const tree = filterTreeForCompact(buildSectionTree(sections), compact);
+  const hasAttachments = attachments != null && attachments.length > 0;
+
   // Table of contents ---------------------------------------------------
-  if (includeToc) {
+  // Task 183: a spec with nothing to list (no sections survive and no
+  // attachments appendix) gets no TOC page - an empty "Indholdsfortegnelse"
+  // page is noise in a customer PDF.
+  if (includeToc && (tree.length > 0 || hasAttachments)) {
     content.push({
       toc: {
         title: { text: "Indholdsfortegnelse", style: "tocHeader" },
@@ -390,21 +432,17 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
   }
 
   // Small metadata block ------------------------------------------------
-  const metaLines: string[] = [`Kind: ${kindLabel}`];
-  if (projectName) metaLines.push(`Project: ${projectName}`);
+  // Danish labels: the PDF is always Danish (Task 183). `kindLabel` is the
+  // same document type the cover prints (Task 147).
+  const metaLines: string[] = [`Type: ${kindLabel}`];
+  if (projectName) metaLines.push(`Projekt: ${projectName}`);
   if (revision) metaLines.push(`Revision: ${revision}`);
-  if (revisionDate) metaLines.push(`Revision date: ${revisionDate}`);
+  if (revisionDate) metaLines.push(`Revisionsdato: ${revisionDate}`);
   content.push({ text: metaLines.join("   ·   "), style: "meta" });
 
   // Sections ------------------------------------------------------------
-  // Build the tree, then apply the Compact filter when asked. Compact
-  // strips sections whose body is visually empty, keeping parents when
-  // any descendant survived so numbering still makes sense. A fully
-  // empty spec under Compact falls through to the "(no sections)"
-  // placeholder — by design: the user said "still produce the PDF".
-  const tree = filterTreeForCompact(buildSectionTree(sections), compact);
   if (tree.length === 0) {
-    content.push({ text: "(no sections)", style: "empty", italics: true });
+    content.push({ text: "(ingen afsnit)", style: "empty", italics: true });
   } else {
     walk(tree, content, convert, destIdPrefix, pfbbChildOverlay);
   }
@@ -413,7 +451,7 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
   // Only runs for work-area PDFs (the caller gates this) and only when
   // there is at least one attachment. Empty / undefined → nothing is
   // emitted, not even the page break.
-  if (attachments && attachments.length > 0) {
+  if (hasAttachments) {
     appendAttachmentsAppendix(content, attachments);
   }
 

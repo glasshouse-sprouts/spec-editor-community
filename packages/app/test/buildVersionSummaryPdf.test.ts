@@ -14,23 +14,7 @@ import type {
   SectionRevision,
   WholeSpecRevision,
 } from "../src/renderer/src/compare/compareTypes.js";
-import {
-  buildVersionSummaryPdf,
-  type SummaryStrings,
-} from "../src/renderer/src/pdf/buildVersionSummaryPdf.js";
-
-/** Minimal English string set so test assertions are easy to read. */
-const STRINGS: SummaryStrings = {
-  documentTitle: "Version summary",
-  referenceLabel: "Reference:",
-  noChangesText: "No changes found.",
-  sectionsHeader: "Sections",
-  cpRowsHeader: "Control-plan rows",
-  attachmentsHeader: "Attachments",
-  kindLabel: { added: "ADDED", deleted: "DELETED", modified: "MODIFIED" },
-  wholeSpecCount: (n) => `${n} sections in total.`,
-  cpSlotLabel: { design: "Design", production: "Production" },
-};
+import { buildVersionSummaryPdf } from "../src/renderer/src/pdf/buildVersionSummaryPdf.js";
 
 /** Recursively flatten a Content tree into all the {text:...} strings. */
 function flattenText(node: unknown): string[] {
@@ -88,10 +72,9 @@ describe("buildVersionSummaryPdf", () => {
       referenceLabel: "ref.moliospec",
       companyName: "Co.",
       revisions: [],
-      strings: STRINGS,
     });
     const text = flattenText(doc.content);
-    expect(text).toContain("No changes found.");
+    expect(text).toContain("Ingen ændringer fundet.");
   });
 
   it("includes the document title and reference label on the body", () => {
@@ -100,10 +83,9 @@ describe("buildVersionSummaryPdf", () => {
       referenceLabel: "older.moliospec",
       companyName: "Co.",
       revisions: [],
-      strings: STRINGS,
     });
     const text = flattenText(doc.content);
-    expect(text).toContain("Version summary");
+    expect(text).toContain("Ændringsoversigt");
     expect(text.some((s) => s.includes("older.moliospec"))).toBe(true);
   });
 
@@ -141,12 +123,11 @@ describe("buildVersionSummaryPdf", () => {
       referenceLabel: null,
       companyName: "Co.",
       revisions: [sec_2, sec_1_1, sec_1],
-      strings: STRINGS,
     });
     const text = flattenText(doc.content);
     // Spec heading appears before any of its rows.
     const specIdx = text.findIndex((s) => s === "Work area A");
-    const sectionsHeaderIdx = text.findIndex((s) => s === "Sections");
+    const sectionsHeaderIdx = text.findIndex((s) => s === "Sektioner");
     expect(specIdx).toBeGreaterThan(-1);
     expect(sectionsHeaderIdx).toBeGreaterThan(specIdx);
     // The three section labels must appear in path order: 1, 1.1, 2.
@@ -177,14 +158,13 @@ describe("buildVersionSummaryPdf", () => {
       referenceLabel: null,
       companyName: "Co.",
       revisions: [whole],
-      strings: STRINGS,
     });
     const text = flattenText(doc.content);
     expect(text).toContain("Foo");
-    expect(text.some((s) => s.includes("7 sections in total."))).toBe(true);
+    expect(text.some((s) => s.includes("7 sektioner i alt."))).toBe(true);
     // The Sections / CP / Attachments sub-headers should NOT appear
     // for whole-spec rows — those are only for the per-revision lists.
-    expect(text).not.toContain("Sections");
+    expect(text).not.toContain("Sektioner");
   });
 
   it("groups CP rows and attachments under their owning spec", () => {
@@ -220,11 +200,10 @@ describe("buildVersionSummaryPdf", () => {
       referenceLabel: null,
       companyName: "Co.",
       revisions: [cpRow, att],
-      strings: STRINGS,
     });
     const text = flattenText(doc.content);
-    expect(text).toContain("Control-plan rows");
-    expect(text).toContain("Attachments");
+    expect(text).toContain("Kontrolplanrækker");
+    expect(text).toContain("Bilag");
     expect(text.some((s) => s.includes("1.2"))).toBe(true);
     expect(text).toContain("drawing.pdf");
   });

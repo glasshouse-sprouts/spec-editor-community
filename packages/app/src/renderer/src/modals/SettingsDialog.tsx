@@ -12,6 +12,8 @@
 import { useEffect, useState } from "react";
 
 import { type Locale, useLocale, useT } from "../i18n/i18n.js";
+import { prefStore } from "../prefs.js";
+import { readCompanyName, writeCompanyName } from "../companyNamePrefs.js";
 import {
   patchVersionCompareFormat,
   resetVersionCompareFormat,
@@ -61,6 +63,11 @@ export function SettingsDialog({
 }: SettingsDialogProps): JSX.Element {
   const t = useT();
   const [locale, setLocale] = useLocale();
+  // Task 185: the company name for the PDF footer and built-in cover.
+  // Saved on every change, in the same store as the language.
+  const [companyName, setCompanyName] = useState(() =>
+    readCompanyName(prefStore()),
+  );
   const [format] = useVersionCompareFormat();
   useEscToClose(onClose);
 
@@ -93,6 +100,31 @@ export function SettingsDialog({
                 <option value="da">{t("settings.language.danish")}</option>
                 <option value="en">{t("settings.language.english")}</option>
               </select>
+            </label>
+          </fieldset>
+
+          {/* Task 185 - company name for the PDF footer and built-in cover. */}
+          <fieldset className="settings-section">
+            <legend className="settings-section__legend">
+              {t("settings.companyName.section")}
+            </legend>
+            <p className="settings-section__hint">
+              {t("settings.companyName.hint")}
+            </p>
+            <label className="modal__field">
+              <span className="modal__field-label">
+                {t("settings.companyName.label")}
+              </span>
+              <input
+                type="text"
+                className="modal__input"
+                value={companyName}
+                onChange={(e) => {
+                  setCompanyName(e.target.value);
+                  writeCompanyName(prefStore(), e.target.value);
+                }}
+                aria-label={t("settings.companyName.label")}
+              />
             </label>
           </fieldset>
 

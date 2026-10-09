@@ -92,6 +92,10 @@ interface Props {
    *  from `alignment.sideTitle`; the kind label is fixed ("Work area").
    *  Revision isn't threaded through for the parent — see slice notes. */
   rightTitle?: string;
+  /** i18n key for the RIGHT column's kind label (Task 147 B2.2): the
+   *  right document's own type when it is a work area or a BDB. Omitted
+   *  (e.g. Molio's own content) -> the old fixed "aligned.workAreaKind". */
+  rightKindKey?: string;
   /**
    * Slice 10H.7.c — when present, the LEFT column renders in PFBB
    * child mode: each left cell becomes a compound (grey master body +
@@ -123,6 +127,7 @@ export const AlignedSpecView = forwardRef<HTMLDivElement, Props>(
       leftRevision,
       leftRevisionDate,
       rightTitle,
+      rightKindKey,
       childContext,
     },
     scrollRef,
@@ -165,7 +170,7 @@ export const AlignedSpecView = forwardRef<HTMLDivElement, Props>(
               <AlignedHeaderCell
                 side="right"
                 title={rightTitle}
-                kind={t("aligned.workAreaKind")}
+                kind={t(rightKindKey ?? "aligned.workAreaKind")}
               />
             </>
           )}

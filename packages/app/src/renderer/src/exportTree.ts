@@ -40,7 +40,10 @@ import type {
   FilePayload,
   WorkSpecInfo,
 } from "../../shared/ipc.js";
-import { formatContractLabel } from "./ExportCardLabels.js";
+import {
+  formatContractLabel,
+  formatWorkAreaTitle,
+} from "./ExportCardLabels.js";
 import { compareByName, compareCodeThenName } from "./sortHelpers.js";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +58,9 @@ export interface ExportTreeBdbNode {
 export interface ExportTreeWorkAreaNode {
   id: number;
   label: string;
+  /** `work_spec.work_area_type` (0/1/2). The composite export derives its
+   *  cover's document type from it (Task 147). */
+  workAreaType: number;
   bdbs: ExportTreeBdbNode[];
 }
 
@@ -205,6 +211,7 @@ function buildWorkAreaNode(
   return {
     id: ws.id,
     label: workAreaLabel(ws),
+    workAreaType: ws.workAreaType,
     bdbs: sortedBdbs.map((b) => ({
       id: b.id,
       label: b.name || "(unnamed building element specification)",
@@ -213,8 +220,8 @@ function buildWorkAreaNode(
 }
 
 function workAreaLabel(ws: WorkSpecInfo): string {
-  const name = ws.workAreaName || "(unnamed work area)";
-  return ws.workAreaCode ? `${ws.workAreaCode} ${name}` : name;
+  const name = ws.workAreaName?.trim() || "(unnamed work area)";
+  return formatWorkAreaTitle(ws.workAreaCode, name);
 }
 
 function buildCpNode(

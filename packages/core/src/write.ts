@@ -152,6 +152,14 @@ export type Edit =
       issueDate?: string | null;
       reviewedBy?: string | null;
       approvedBy?: string | null;
+      /**
+       * Task 155 - the work area's reference-list date (fiksdato).
+       * `null` clears it, which means "inherit from the project".
+       * The sibling column `molio_referencelist_area` (the GUID) is
+       * deliberately NOT here: it is the base revision's own GUID and
+       * stays locked.
+       */
+      referencelistAreaDate?: string | null;
     }
   // BDB (construction_element_spec) metadata (Slice 10E). Same patch
   // shape rules as `workSpecMetadata`. `name` is NOT NULL. `isPfbb`
@@ -173,6 +181,10 @@ export type Edit =
       issueDate?: string | null;
       reviewedBy?: string | null;
       approvedBy?: string | null;
+      /** Task 155 - the BDB's own reference-list date (fiksdato).
+       *  `null` clears it, which means "inherit from the work area,
+       *  and from the project after that". */
+      referencelistAreaDate?: string | null;
     }
   // Control-plan metadata (Slice 10F). Only `revision` and
   // `revision_date` are supported here — the Molio 2.0 schema's
@@ -862,6 +874,11 @@ export function applyEdits(
   const updateWorkSpecApprovedBy = db.prepare(
     "update work_spec set approved_by = ? where id = ?",
   );
+  // Task 155. Only the DATE column is writable; molio_referencelist_area
+  // (the GUID) has no write slot on purpose.
+  const updateWorkSpecReferencelistAreaDate = db.prepare(
+    "update work_spec set molio_referencelist_area_date = ? where id = ?",
+  );
 
   // BDB metadata (Slice 10E). One prepared statement per writable
   // column.
@@ -891,6 +908,10 @@ export function applyEdits(
   );
   const updateBdbApprovedBy = db.prepare(
     "update construction_element_spec set approved_by = ? where id = ?",
+  );
+  // Task 155. Date only - the GUID column stays read-only.
+  const updateBdbReferencelistAreaDate = db.prepare(
+    "update construction_element_spec set molio_referencelist_area_date = ? where id = ?",
   );
 
   // Control-plan metadata (Slice 10F). Only the two nullable revision
@@ -1165,6 +1186,14 @@ export function applyEdits(
             changes += r.changes;
             touched = true;
           }
+          if (e.referencelistAreaDate !== undefined) {
+            const r = updateWorkSpecReferencelistAreaDate.run(
+              e.referencelistAreaDate,
+              e.id,
+            );
+            changes += r.changes;
+            touched = true;
+          }
           if (touched) {
             touchProjectModifiedDateAny.run();
           }
@@ -1216,6 +1245,14 @@ export function applyEdits(
           }
           if (e.approvedBy !== undefined) {
             const r = updateBdbApprovedBy.run(e.approvedBy, e.id);
+            changes += r.changes;
+            touched = true;
+          }
+          if (e.referencelistAreaDate !== undefined) {
+            const r = updateBdbReferencelistAreaDate.run(
+              e.referencelistAreaDate,
+              e.id,
+            );
             changes += r.changes;
             touched = true;
           }

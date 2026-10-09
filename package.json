@@ -1,6 +1,6 @@
 {
   "name": "molio2-editor",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "Desktop viewer and editor for Molio 2.0 specification files",
   "workspaces": [
@@ -19,14 +19,14 @@
     "format:check": "prettier --check .",
     "rebuild-native": "npm run rebuild-native -w @molio2-editor/app",
     "package": "npm run build -w @molio2-editor/core && npm run package -w @molio2-editor/app",
-    "package:mac": "npm run build -w @molio2-editor/core && npm run package:mac -w @molio2-editor/app",
+    "package:mac": "node packages/app/scripts/check-apple-notarize-env.cjs --mac && npm run build -w @molio2-editor/core && npm run package:mac -w @molio2-editor/app",
     "package:win": "npm run build -w @molio2-editor/core && npm run package:win -w @molio2-editor/app",
     "package:linux": "npm run build -w @molio2-editor/core && npm run package:linux -w @molio2-editor/app",
     "package:dir": "npm run build -w @molio2-editor/core && npm run package:dir -w @molio2-editor/app"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "electron": "^41.7.2",
+    "electron": "^41.10.7",
     "eslint": "^10.5.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",

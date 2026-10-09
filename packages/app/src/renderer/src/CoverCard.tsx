@@ -10,11 +10,16 @@
 
 import { useCoverEngine } from "./coverContext.js";
 
-export function CoverCard(): JSX.Element | null {
+export function CoverCard({
+  moliospecPath,
+}: {
+  /** The open project. The cover pick belongs to it (Task 174). */
+  moliospecPath: string;
+}): JSX.Element | null {
   const cover = useCoverEngine();
   if (!cover.enabled) return null;
 
-  const active = cover.activeTemplateLabel;
+  const active = cover.activeTemplateLabelFor(moliospecPath);
   return (
     <section className="export-card" aria-labelledby="cover-card-title">
       <div className="export-card__header">
@@ -29,7 +34,7 @@ export function CoverCard(): JSX.Element | null {
           <button
             type="button"
             className="export-card__button"
-            onClick={cover.openEditor}
+            onClick={() => cover.openEditor(moliospecPath)}
           >
             Rediger forside…
           </button>

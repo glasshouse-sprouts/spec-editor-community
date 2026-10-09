@@ -48,10 +48,11 @@ import { findMatchingRefBdb, findMatchingRefWorkArea } from "./ExportCard.js";
 // MIRROR-OF-buildBytesFor for the WA attachments path.
 import { gatherAppendixEntries } from "./ExportCard.js";
 
-const COMPANY_NAME_PLACEHOLDER = "Company name";
-
 export interface CompositeBuildOptions {
   includeCoverPage: boolean;
+  /** The "Firmanavn" app setting (Task 185) - see BuildOptions.companyName
+   *  in ExportCard.tsx. Null or omitted -> empty footer cell. */
+  companyName?: string | null;
   compact: boolean;
   /** Include the unified table of contents. Optional — omitted means
    *  "on" (the builder defaults to true). */
@@ -107,11 +108,16 @@ export async function buildBytesForCompositeJob(
   const includeAutoCover = opts.cover ? false : opts.includeCoverPage;
   const renderArgs: Parameters<typeof renderCompositePdf>[0] = {
     cover: {
+      documentType: job.cover.documentType,
       title: job.cover.title,
       subtitle: job.cover.subtitle ?? null,
       projectName,
       contractLabel: job.cover.contractLabel,
-      companyName: COMPANY_NAME_PLACEHOLDER,
+      // Task 183: bygherre in the running header, same source as the
+      // custom cover's context below.
+      builder: data.project?.builder ?? null,
+      // Task 185: company name from the app setting (footer + cover).
+      companyName: opts.companyName ?? null,
     },
     chapters,
     includeCoverPage: includeAutoCover,
@@ -134,6 +140,9 @@ export async function buildBytesForCompositeJob(
     revisionDate: null,
     contractLabel: job.cover.contractLabel ?? null,
     workAreaName: null,
+    // Task 147 B2.1: the composite text from the job - the same value the
+    // built-in composite cover prints.
+    documentType: job.cover.documentType,
   });
 }
 
@@ -187,8 +196,13 @@ async function prepareWorkAreaChapter(
 
   const chapter: CompositePdfChapter = {
     kind: "workSpec" as SpecKind,
+    // Task 147: the chapter's "Type:" line shows its own type.
+    workAreaType: ws.workAreaType,
     title: plan.title,
-    subtitle: plan.subtitle ?? ws.workAreaCode ?? null,
+    // Task 145: plan.title already carries the code in front of the name
+    // (exportTree's label). Falling back to the bare code here printed it
+    // a second time under the chapter heading.
+    subtitle: plan.subtitle ?? null,
     revision: ws.revision ?? null,
     revisionDate: ws.revisionDate ?? null,
     sections,

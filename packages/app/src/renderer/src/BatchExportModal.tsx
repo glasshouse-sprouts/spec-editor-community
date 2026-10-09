@@ -114,6 +114,11 @@ export interface BatchExportModalProps {
     opts: { compact: boolean; includeToc: boolean },
   ) => void;
   status: BatchExportStatus;
+  /**
+   * The open project's `.moliospec` path. The "edit cover" shortcut
+   * opens the editor for this project (Task 174).
+   */
+  moliospecPath: string;
 }
 
 /**
@@ -143,6 +148,7 @@ export function BatchExportModal(props: BatchExportModalProps): JSX.Element {
     onExport,
     onExportDocx,
     status,
+    moliospecPath,
   } = props;
 
   const t = useT();
@@ -406,7 +412,7 @@ export function BatchExportModal(props: BatchExportModalProps): JSX.Element {
               type="button"
               className="modal__button"
               style={{ marginRight: "auto" }}
-              onClick={cover.openEditor}
+              onClick={() => cover.openEditor(moliospecPath)}
               disabled={busy}
             >
               Rediger forside…

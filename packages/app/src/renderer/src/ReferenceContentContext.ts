@@ -22,12 +22,27 @@
  */
 import { createContext, useContext, type ReactNode } from "react";
 
-import type { ReferenceLinks, SectionData } from "../../shared/ipc.js";
+import type {
+  MolioReferencelistDateInputs,
+  ReferenceLinks,
+  SectionData,
+} from "../../shared/ipc.js";
 import type { RefSubTab } from "./refTypes.js";
 
 export interface ReferenceContentArgs {
   refs: ReferenceLinks;
   effectiveSubTab: RefSubTab;
+  /**
+   * Task 155 - the reference-list dates (fiksdato) that apply to this
+   * spec, as they stand right now, including edits the user has not
+   * saved. The Referenceliste lookup needs them to ask Molio for the
+   * list that applied on that date instead of the newest one. The
+   * rule BDB > work area > project is applied in main.
+   *
+   * Community's default `useContent` ignores this, so the field costs
+   * the Community build nothing.
+   */
+  referencelistDates: MolioReferencelistDateInputs;
 }
 
 export interface ReferenceContentResult {

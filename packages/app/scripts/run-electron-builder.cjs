@@ -25,6 +25,7 @@
  */
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
+const { runGuard } = require("./check-apple-notarize-env.cjs");
 
 const SCRIPT_DIR = __dirname;
 
@@ -42,6 +43,10 @@ async function main() {
   // The arguments after `--` (or just everything passed) are forwarded
   // to electron-builder. We don't try to parse them; just pass through.
   const args = process.argv.slice(2);
+  // macOS only: stop BEFORE anything is touched if notarization would be
+  // skipped silently (Task 136). A no-op for --win, --linux and --dir.
+  // See check-apple-notarize-env.cjs for why, and for SKIP_NOTARIZE=1.
+  if (runGuard(args) !== 0) process.exit(1);
   let exitCode = 0;
   // Always start by restoring any previously-hidden symlink. Defensive
   // — if a previous run crashed before the finally cleanup, the dev
