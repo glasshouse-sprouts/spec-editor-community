@@ -219,6 +219,13 @@ export function SpecTabView({
   // area section id — works across layouts because both sides carry the
   // same section ids on the left column.
   const pendingAnchorRef = useRef<number | null>(null);
+  // Task 154: the section the view was last showing, kept across layout
+  // switches. A switch can take two steps: picking a Molio tab whose
+  // content is still loading shows the standard layout first and the
+  // aligned one when the content arrives. The pending anchor above is
+  // spent on the first step; this one is still there for the second.
+  // Updated from real scrolling and from every restore.
+  const lastAnchorRef = useRef<number | null>(null);
 
   const handleSubTabChange = (t: RefSubTab): void => {
     const root = isAlignedRendered
@@ -391,6 +398,7 @@ export function SpecTabView({
       rafId = requestAnimationFrame(() => {
         rafId = null;
         updateActive();
+        lastAnchorRef.current = findAnchorSectionId(root);
       });
     };
 
@@ -410,9 +418,10 @@ export function SpecTabView({
   // `pendingAnchorRef` for the rationale. `scroll-margin-top` on .section /
   // .aligned__cell keeps the sticky header from covering the anchor.
   useEffect(() => {
-    const anchor = pendingAnchorRef.current;
-    if (anchor == null) return;
+    const anchor = pendingAnchorRef.current ?? lastAnchorRef.current;
     pendingAnchorRef.current = null;
+    if (anchor == null) return;
+    lastAnchorRef.current = anchor;
     const root = isAlignedRendered
       ? alignedScrollRef.current
       : contentScrollRef.current;

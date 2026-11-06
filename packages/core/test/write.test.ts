@@ -895,19 +895,39 @@ describe("duplicateBdb", () => {
     }
   });
 
-  it("clears identity GUIDs and CP links on the copy", async () => {
-    if (!showoff) return;
-    const h = await openMoliospec(showoff.path);
+  it("clears identity GUIDs and local CP links, keeps the common CP GUIDs (Task 139)", async () => {
+    // Task 139: common_controlplan_*_guid point at a control plan Molio
+    // has published. That reference still holds for the copy, so it is
+    // kept. The local CP links and the BDB's own identity GUIDs are
+    // cleared. The source gets every one of them set first, so no
+    // assertion can pass just because the column was empty already.
+    expect(showoff).toBeDefined();
+    const h = await openMoliospec(showoff!.path);
     try {
       const file = readMoliospec(h);
-      // Prefer a BDB that has CP links so we actually test the clearing.
       const source =
         file.constructionElementSpecs.find(
-          (b) => b.controlplan_design_id || b.controlplan_production_id,
+          (b) => b.controlplan_design_id && b.controlplan_production_id,
         ) ?? file.constructionElementSpecs[0];
-      if (!source) return;
+      expect(source).toBeDefined();
+      const cpId = file.controlPlans[0]?.id;
+      expect(cpId).toBeDefined();
+      const DESIGN_GUID = "0b1a6c55-1d6e-4c7e-9b8a-000000000139";
+      const PRODUCTION_GUID = "0b1a6c55-1d6e-4c7e-9b8a-000000000239";
+      h.db
+        .prepare(
+          `update construction_element_spec set
+             controlplan_design_id = coalesce(controlplan_design_id, ?),
+             controlplan_production_id = coalesce(controlplan_production_id, ?),
+             common_controlplan_design_guid = ?,
+             common_controlplan_production_guid = ?,
+             molio_construction_element_spec_guid = 'instance-guid',
+             molio_construction_element_spec_revision_guid = 'instance-rev-guid'
+           where id = ?`,
+        )
+        .run(cpId, cpId, DESIGN_GUID, PRODUCTION_GUID, source!.id);
 
-      const result = duplicateBdb(h, { bdbId: source.id });
+      const result = duplicateBdb(h, { bdbId: source!.id });
       const reread = readMoliospec(h);
       const copy = reread.constructionElementSpecs.find(
         (b) => b.id === result.newBdbId,
@@ -917,8 +937,8 @@ describe("duplicateBdb", () => {
       expect(copy?.molio_construction_element_spec_revision_guid).toBeNull();
       expect(copy?.controlplan_design_id).toBeNull();
       expect(copy?.controlplan_production_id).toBeNull();
-      expect(copy?.common_controlplan_design_guid).toBeNull();
-      expect(copy?.common_controlplan_production_guid).toBeNull();
+      expect(copy?.common_controlplan_design_guid).toBe(DESIGN_GUID);
+      expect(copy?.common_controlplan_production_guid).toBe(PRODUCTION_GUID);
     } finally {
       await h.close();
     }
@@ -1337,9 +1357,7 @@ describe("duplicateControlPlan", () => {
   /** Pick the first BDB in the sample that already has at least one CP
    *  we can use as a source. Returns both the source CP id and a
    *  *different* BDB with a free slot to clone into. */
-  function findSourceAndTarget(
-    h: Awaited<ReturnType<typeof openMoliospec>>,
-  ): {
+  function findSourceAndTarget(h: Awaited<ReturnType<typeof openMoliospec>>): {
     sourceCpId: number;
     targetBdbId: number;
     targetSlot: "design" | "production";

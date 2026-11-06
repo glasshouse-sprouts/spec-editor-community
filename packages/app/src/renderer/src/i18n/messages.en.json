@@ -220,6 +220,7 @@
   "errors.code.IO_WAL_CHECKPOINT_FAILED": "The file could not be saved because the most recent changes could not be fully written to the database. Try again; your existing file is untouched.",
   "errors.code.IO_MIGRATION_FAILED": "This file is in an older format ({fromVersion}) and the upgrade to {toVersion} could not be completed. Your original file is untouched.",
   "errors.code.IO_LEGACY_FILE_READ_ONLY": "This file is in an older format ({fromVersion}) and cannot be changed directly. Use Save As to save it as a new file in format {toVersion}; after that you can edit freely. Your original file is left untouched.",
+  "errors.code.SECTION_BODY_TOO_LONG": "A section is too long to be saved. Split the text over several sections, or remove some of the inserted images, which take up the most space. Your changes have not been saved yet.",
   "errors.code.INTERNAL": "Something went wrong inside the app — please report this. Technical details: {debug}",
   "errors.system.EACCES": "Permission denied. The file may be read-only or owned by another user.",
   "errors.system.EPERM": "Permission denied. Check the file's permissions and try again.",

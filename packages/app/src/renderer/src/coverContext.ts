@@ -33,6 +33,12 @@ export interface CoverExportContext {
   projectName: string | null;
   projectNumber: string | null;
   builder: string | null;
+  /**
+   * The company name from Settings > "Firma" (Task 185), the value the
+   * PDF footer prints. A custom cover's "Firmanavn" field shows the same
+   * value (Task 190), so the two can never disagree.
+   */
+  companyName: string | null;
   /** Export date, pre-formatted (e.g. "2026-06-26"). */
   dateText: string;
   specTitle: string | null;

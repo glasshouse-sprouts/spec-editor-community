@@ -65,6 +65,13 @@
  * the in-editor click is suppressed by the TipTap Link extension's
  * `openOnClick: false`.
  *
+ * Task 138 adds twelve tags other tools write: h1-h6, blockquote, pre,
+ * b, i, sub, sup. No attributes come with them.
+ *
+ * Card 195: Molio's `<specialchar>X</specialchar>` (a Symbol-font
+ * character, e.g. "m" for µ) is translated to Unicode before DOMPurify
+ * runs - see `symbolFontChars.ts`. Core does the same.
+ *
  * Everything else gets stripped. This runs in two places:
  *
  *   1. On every incoming body from the file (once at load), so what the
@@ -80,6 +87,7 @@
 import DOMPurify from "dompurify";
 
 import { isAllowedImageDataUrl } from "./imageProcess.js";
+import { translateSymbolFontChars } from "./symbolFontChars.js";
 
 /**
  * The complete list of allowed tags. Exported so the TipTap schema can
@@ -113,6 +121,24 @@ export const MOLIO_ALLOWED_TAGS: readonly string[] = Object.freeze([
   "u",
   // 6L.2: external URL links.
   "a",
+  // Task 138: tags other tools write and Molio's draft 01.01.00 spec
+  // (section 4.1) says an implementation must support. Before, a file
+  // with any of these lost the tag at load (KEEP_CONTENT kept the
+  // text) and the loss became permanent on the next save. The editor
+  // preserves them too, without offering them in the toolbar - see
+  // `editorPreservedFormatting.ts`.
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+  "pre",
+  "b",
+  "i",
+  "sub",
+  "sup",
 ]);
 
 /**
@@ -242,7 +268,9 @@ export function sanitizeBody(html: string): string {
 
   DOMPurify.addHook("uponSanitizeAttribute", attrHook);
   try {
-    return DOMPurify.sanitize(html, {
+    // Card 195: Molio's <specialchar> becomes its Unicode symbol first;
+    // DOMPurify would drop the tag and keep a misleading plain letter.
+    return DOMPurify.sanitize(translateSymbolFontChars(html), {
       ALLOWED_TAGS: [...MOLIO_ALLOWED_TAGS],
       ALLOWED_ATTR: [...MOLIO_ALLOWED_ATTRS],
       // Keep text content when a tag is stripped rather than dropping the

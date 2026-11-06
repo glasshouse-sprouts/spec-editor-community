@@ -43,10 +43,13 @@ import {
   type MoveCpResult,
 } from "../../shared/ipc.js";
 import { preflight, withHandleForWrite } from "./shared.js";
+import { assertMoliospecPath } from "../pathGuards.js";
 
 ipcMain.handle(
   Channels.createCp,
   async (_event, req: CreateCpRequest): Promise<CreateCpResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] createCp:", {
       path: req.path,
       bdbId: req.bdbId,
@@ -80,6 +83,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.duplicateCp,
   async (_event, req: DuplicateCpRequest): Promise<DuplicateCpResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] duplicateCp:", {
       path: req.path,
       sourceCpId: req.sourceCpId,
@@ -117,6 +122,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.moveCp,
   async (_event, req: MoveCpRequest): Promise<MoveCpResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] moveCp:", {
       path: req.path,
       sourceCpId: req.sourceCpId,
@@ -156,6 +163,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.deleteCp,
   async (_event, req: DeleteCpRequest): Promise<DeleteCpResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] deleteCp:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -174,6 +183,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.addCpRow,
   async (_event, req: AddCpRowRequest): Promise<AddCpRowResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] addCpRow:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -196,6 +207,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.deleteCpRow,
   async (_event, req: DeleteCpRowRequest): Promise<DeleteCpRowResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] deleteCpRow:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -214,6 +227,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.addCpHeader,
   async (_event, req: AddCpHeaderRequest): Promise<AddCpHeaderResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] addCpHeader:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -238,6 +253,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.deleteCpHeader,
   async (_event, req: DeleteCpHeaderRequest): Promise<DeleteCpHeaderResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] deleteCpHeader:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;

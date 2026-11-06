@@ -61,10 +61,13 @@ import {
   preflight,
   withHandleForWrite,
 } from "./shared.js";
+import { assertMoliospecPath } from "../pathGuards.js";
 
 ipcMain.handle(
   Channels.addAttachment,
   async (_event, req: AddAttachmentRequest): Promise<AddAttachmentResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] addAttachment:", {
       path: req.path,
       workSpecId: req.workSpecId,
@@ -133,6 +136,8 @@ ipcMain.handle(
     _event,
     req: DeleteAttachmentRequest,
   ): Promise<DeleteAttachmentResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] deleteAttachment:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -172,6 +177,8 @@ ipcMain.handle(
     _event,
     req: ReplaceAttachmentRequest,
   ): Promise<ReplaceAttachmentResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] replaceAttachment:", {
       path: req.path,
       attachmentId: req.attachmentId,
@@ -237,6 +244,8 @@ ipcMain.handle(
     _event,
     req: RenameAttachmentRequest,
   ): Promise<RenameAttachmentResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] renameAttachment:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -275,6 +284,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.moveAttachment,
   async (_event, req: MoveAttachmentRequest): Promise<MoveAttachmentResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] moveAttachment:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -338,6 +349,8 @@ function sanitizeAttachmentFilename(raw: string): string {
 ipcMain.handle(
   Channels.openAttachment,
   async (_event, req: OpenAttachmentRequest): Promise<OpenAttachmentResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     // NOTE: Read-only. We don't take the storedMtimeMs envelope —
     // opening is a view operation and shouldn't block on unsaved
     // renderer edits (the bytes on disk haven't changed since the
@@ -404,6 +417,8 @@ ipcMain.handle(
     _event,
     req: ReadAttachmentBytesRequest,
   ): Promise<ReadAttachmentBytesResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     let handle: Awaited<ReturnType<typeof openMoliospec>> | null = null;
     try {
       handle = await openMoliospec(req.path);

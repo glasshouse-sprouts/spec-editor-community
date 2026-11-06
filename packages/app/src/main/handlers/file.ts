@@ -52,6 +52,7 @@ import {
   groupControlPlanRows,
   safeMtimeMs,
 } from "./shared.js";
+import { assertMoliospecPath, MOLIO_FILE_EXTENSIONS } from "../pathGuards.js";
 
 ipcMain.handle(Channels.openFileDialog, async () => {
   const result = await dialog.showOpenDialog({
@@ -60,7 +61,8 @@ ipcMain.handle(Channels.openFileDialog, async () => {
     filters: [
       {
         name: "Molio files",
-        extensions: ["moliospec", "mspec", "mspectpl", "sqlite"],
+        // Task 106: the same list main accepts from the renderer.
+        extensions: MOLIO_FILE_EXTENSIONS.map((e) => e.slice(1)),
       },
       { name: "All files", extensions: ["*"] },
     ],
@@ -72,6 +74,8 @@ ipcMain.handle(Channels.openFileDialog, async () => {
 ipcMain.handle(
   Channels.openFile,
   async (_event, path: string): Promise<FilePayload> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(path);
     console.log("[main] openFile start:", path);
     let handle: Awaited<ReturnType<typeof openMoliospec>> | null = null;
     try {
@@ -354,6 +358,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.saveFile,
   async (_event, req: SaveFileRequest): Promise<SaveFileResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] saveFile start:", req.path, {
       force: req.force,
       edits: req.edits?.length ?? 0,
@@ -465,6 +471,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.saveFileAs,
   async (_event, req: SaveFileAsRequest): Promise<SaveFileAsResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.sourcePath, "sourcePath");
     console.log("[main] saveFileAs start:", {
       suggestedName: req.suggestedName,
       edits: req.edits?.length ?? 0,

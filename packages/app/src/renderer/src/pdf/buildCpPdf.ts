@@ -37,6 +37,7 @@ import {
   type PdfChromeArgs,
 } from "./pdfChrome.js";
 import { CONTROL_PLAN_DOCUMENT_TYPE } from "./documentTypes.js";
+import { todayDate } from "../dateHelpers.js";
 
 /**
  * Input to the CP builder. Intentionally doesn't take the full
@@ -205,7 +206,7 @@ export function buildCpPdf(args: BuildCpPdfArgs): TDocumentDefinitions {
     workAreaName: workAreaName ?? null,
     documentLabel,
     companyName: companyName ?? null,
-    dateText: dateText ?? todayISO(),
+    dateText: dateText ?? todayDate(),
     revisionDateText: revisionDate ?? null,
   };
 
@@ -347,17 +348,4 @@ function buildTable(
     layout: "lightHorizontalLines",
     fontSize: 8,
   };
-}
-
-/**
- * Today's date as ISO (YYYY-MM-DD). Used as the fallback when the
- * caller doesn't pass `dateText`. Matches `buildSpecPdf`'s helper so
- * both PDFs format the header date identically.
- */
-function todayISO(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }

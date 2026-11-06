@@ -15,8 +15,10 @@
 
 import type { Statement } from "better-sqlite3";
 
-import { CoreError } from "./errors.js";
+import { CoreError, SectionBodyTooLongError } from "./errors.js";
 import type { MoliospecHandle } from "./io.js";
+import { sanitizeSectionBody } from "./sanitizeSectionBody.js";
+import { SECTION_BODY_MAX_LENGTH } from "./sectionBodyAllowlist.js";
 
 /**
  * Local alias for a prepared statement we don't need to strongly type at
@@ -235,8 +237,9 @@ export type Edit =
   // against concurrent edits that produce two stacked creates.
   //
   // `sectionNo` is copied from the master section so the child's row
-  // sorts into the same place in the TOC. `body` is the sanitised
-  // HTML the user typed; `""` is allowed (empty supplement) but the
+  // sorts into the same place in the TOC. `body` is the HTML the user
+  // typed; applyEdits sanitizes it like every other body (Task 105).
+  // `""` is allowed (empty supplement) but the
   // renderer should buffer a `bdbSectionDelete` instead when the user
   // clears to empty — see Slice 10H.7 rule 5.
   | {
@@ -367,6 +370,18 @@ const CP_ROW_COLUMN_BY_FIELD: Record<CpRowEditableField, string> = {
   sampleLevel: "sample_level",
 };
 
+/** The section body an edit writes, or null for edits without one. */
+function bodyOf(e: Edit): string | null {
+  switch (e.target) {
+    case "workSpec":
+    case "bdb":
+    case "bdbSectionCreate":
+      return e.body;
+    default:
+      return null;
+  }
+}
+
 export interface ApplyEditsResult {
   /** How many rows were updated in total across every table touched. */
   updated: number;
@@ -382,6 +397,12 @@ export interface ApplyEditsResult {
  * Throws if any edit references a row id that does not exist in the
  * corresponding table — the caller should treat this as a bug, not a
  * user error.
+ *
+ * Section bodies (Task 105): every body is run through
+ * `sanitizeSectionBody` before it is written, whoever sent it - the
+ * editor, the MCP server or a script. A body longer than
+ * `SECTION_BODY_MAX_LENGTH` throws `SectionBodyTooLongError` before
+ * anything is written.
  */
 export function applyEdits(
   handle: MoliospecHandle,
@@ -1027,6 +1048,14 @@ export function applyEdits(
   const contractDeletes: Array<Extract<Edit, { target: "deleteContract" }>> =
     [];
   for (const e of edits) {
+    const body = bodyOf(e);
+    if (body !== null && body.length > SECTION_BODY_MAX_LENGTH) {
+      throw new SectionBodyTooLongError(
+        body.length,
+        SECTION_BODY_MAX_LENGTH,
+        `applyEdits: ${e.target} body is ${body.length} characters`,
+      );
+    }
     switch (e.target) {
       case "deleteControlPlan":
         controlPlanDeletes.push(e);
@@ -1053,10 +1082,10 @@ export function applyEdits(
       let info;
       switch (e.target) {
         case "workSpec":
-          info = updateWorkSpec.run(e.body, e.sectionId);
+          info = updateWorkSpec.run(sanitizeSectionBody(e.body), e.sectionId);
           break;
         case "bdb":
-          info = updateBdb.run(e.body, e.sectionId);
+          info = updateBdb.run(sanitizeSectionBody(e.body), e.sectionId);
           break;
         case "cpRow": {
           const stmt = getCpRowStmt(e.field);
@@ -1320,13 +1349,13 @@ export function applyEdits(
             e.pfbbSectionId,
           ) as { id: number } | undefined;
           if (existing) {
-            const r = updateBdb.run(e.body, existing.id);
+            const r = updateBdb.run(sanitizeSectionBody(e.body), existing.id);
             info = { changes: r.changes } as { changes: number };
           } else {
             const r = insertBdbSection.run(
               e.bdbId,
               e.sectionNo,
-              e.body,
+              sanitizeSectionBody(e.body),
               e.pfbbSectionId,
             );
             info = { changes: r.changes } as { changes: number };

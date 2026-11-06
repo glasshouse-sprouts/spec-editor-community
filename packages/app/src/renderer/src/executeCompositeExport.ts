@@ -47,6 +47,7 @@ import { findMatchingRefBdb, findMatchingRefWorkArea } from "./ExportCard.js";
 // has zero dependency on ExportCard's IPC-specific image loader.
 // MIRROR-OF-buildBytesFor for the WA attachments path.
 import { gatherAppendixEntries } from "./ExportCard.js";
+import { todayDate } from "./dateHelpers.js";
 
 export interface CompositeBuildOptions {
   includeCoverPage: boolean;
@@ -134,7 +135,8 @@ export async function buildBytesForCompositeJob(
     projectName,
     projectNumber: data.project?.projectNumber ?? null,
     builder: data.project?.builder ?? null,
-    dateText: new Date().toISOString().slice(0, 10),
+    companyName: opts.companyName ?? null,
+    dateText: todayDate(),
     specTitle: job.cover.title,
     revision: null,
     revisionDate: null,

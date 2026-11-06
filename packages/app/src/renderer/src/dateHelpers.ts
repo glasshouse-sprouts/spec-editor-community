@@ -186,3 +186,35 @@ export function formatDate(value: string | null | undefined): string | null {
   if (!p) return null;
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
 }
+
+/**
+ * Epoch milliseconds -> "2026-09-18 - 15:15", Danish time.
+ *
+ * For instants the app itself measured, such as when a recent file was
+ * last opened. Returns null for a value that is not a finite number,
+ * so a corrupt preference never shows "Invalid Date".
+ */
+export function formatInstant(
+  epochMs: number | null | undefined,
+): string | null {
+  if (typeof epochMs !== "number" || !Number.isFinite(epochMs)) return null;
+  const p = partsInDisplayZone(epochMs);
+  if (!p) return null;
+  return `${p.year}-${pad2(p.month)}-${pad2(p.day)} - ${pad2(p.hour)}:${pad2(p.minute)}`;
+}
+
+/**
+ * Today's date in Danish time, "YYYY-MM-DD" - the date printed on a
+ * PDF's cover and header.
+ *
+ * Before this, three call sites used `new Date().toISOString()`, which
+ * is the UTC day: an export made between midnight and 01:00 (02:00 in
+ * summer) Danish time was dated the day before. The four PDF builders
+ * each had their own copy that used the computer's local zone. Now
+ * there is one answer, the same as `formatDate` gives.
+ */
+export function todayDate(nowMs: number = Date.now()): string {
+  const p = partsInDisplayZone(nowMs);
+  if (!p) throw new Error(`todayDate: cannot read the clock (${nowMs})`);
+  return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+}

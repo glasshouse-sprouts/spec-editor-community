@@ -39,6 +39,7 @@ import {
   STANDARD_PAGE_MARGINS_PT,
   type PdfChromeArgs,
 } from "./pdfChrome.js";
+import { todayDate } from "../dateHelpers.js";
 
 /** One chapter in a composite PDF — a single spec's worth of content. */
 export interface CompositePdfChapter {
@@ -149,7 +150,7 @@ export function buildCompositePdf(
     workAreaName: cover.workAreaName ?? null,
     documentLabel: cover.documentLabel ?? cover.title,
     companyName: cover.companyName ?? null,
-    dateText: cover.dateText ?? todayISO(),
+    dateText: cover.dateText ?? todayDate(),
     revisionDateText: cover.revisionDate ?? null,
   };
 
@@ -292,13 +293,4 @@ function isStyledNode(node: unknown, style: string): boolean {
     "style" in node &&
     (node as { style?: unknown }).style === style
   );
-}
-
-/** Today's date as ISO (YYYY-MM-DD). Same fallback as buildSpecPdf. */
-function todayISO(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }

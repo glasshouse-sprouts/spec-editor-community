@@ -39,10 +39,13 @@ import {
 import { saveAsSelfWrite } from "../fileWatcher.js";
 import { openForInPlaceWrite } from "./openForInPlaceWrite.js";
 import { preflight, withHandleForWrite } from "./shared.js";
+import { assertMoliospecPath } from "../pathGuards.js";
 
 ipcMain.handle(
   Channels.createContract,
   async (_event, req: CreateContractRequest): Promise<CreateContractResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] createContract:", {
       path: req.path,
       hasCode: req.contractCode != null,
@@ -71,6 +74,8 @@ ipcMain.handle(
     _event,
     req: SeedDefaultContractsRequest,
   ): Promise<SeedDefaultContractsResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
     try {
@@ -166,6 +171,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.deleteContract,
   async (_event, req: DeleteContractRequest): Promise<DeleteContractResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] deleteContract:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;

@@ -3,8 +3,9 @@
  *
  * One value for every project, set in Settings ("Firmanavn"), in both
  * bskriver and Community. It is printed in the PDF footer and at the foot
- * of the built-in cover. A custom cover (.speccustom, bskriver only)
- * keeps its own company name from the template. An empty field gives an
+ * of the built-in cover. In bskriver, a custom cover's "Firmanavn" field
+ * prints this value too (Task 190, owner's decision 2026-11-03); the
+ * cover template has no company name of its own. An empty field gives an
  * empty footer cell - never a placeholder (Task 183).
  *
  * Stored like the UI language (`molio.locale` in i18n.ts): through

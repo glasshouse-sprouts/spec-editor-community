@@ -53,6 +53,7 @@ import {
   type PdfChromeArgs,
 } from "./pdfChrome.js";
 import { VERSION_SUMMARY_DOCUMENT_TYPE } from "./documentTypes.js";
+import { todayDate } from "../dateHelpers.js";
 
 /** Arguments the builder needs to produce a doc-def. */
 export interface BuildVersionSummaryArgs {
@@ -144,7 +145,7 @@ export function buildVersionSummaryPdf(
     workAreaName: null,
     documentLabel: strings.documentTitle,
     companyName: companyName ?? null,
-    dateText: dateText ?? todayISO(),
+    dateText: dateText ?? todayDate(),
     revisionDateText: null,
   };
 
@@ -428,13 +429,4 @@ function kindColor(kind: "added" | "deleted" | "modified"): string {
   if (kind === "added") return "#16a34a";
   if (kind === "deleted") return "#dc2626";
   return "#2563eb";
-}
-
-/** Today's date as ISO (YYYY-MM-DD). Same helper used by buildSpecPdf. */
-function todayISO(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }

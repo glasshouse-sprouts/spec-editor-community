@@ -59,11 +59,27 @@ app.setName("Spec Editor Community");
 //     session file from this same directory.
 //   - `scripts/export-community.sh`, whose rename step must map this
 //     exact string to Community's own "SpecEditor".
+//
+// Task 192: only the packaged app uses this folder. A dev run
+// (`npm run dev`) gets `<name>-dev-<profile>`, so it never touches
+// the installed app's data; set MOLIO_EDITOR_DEV_PROFILE to give each
+// git worktree its own folder. The rule lives in core's
+// `editorDataDir.ts`, shared with the MCP server.
 const USER_DATA_DIR = "SpecEditor";
-app.setPath("userData", join(app.getPath("appData"), USER_DATA_DIR));
+app.setPath(
+  "userData",
+  join(
+    app.getPath("appData"),
+    editorUserDataDirName(
+      USER_DATA_DIR,
+      editorDevProfile(app.isPackaged, process.env),
+    ),
+  ),
+);
 
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { editorDevProfile, editorUserDataDirName } from "@molio2-editor/core";
 
 import { Channels, type MenuAction } from "../shared/ipc.js";
 
@@ -442,9 +458,16 @@ function buildOpenRecentSubmenu(): Electron.MenuItemConstructorOptions {
   return { label: "Open Recent", submenu };
 }
 
-function buildAppMenu(): Electron.Menu {
-  const isMac = process.platform === "darwin";
-  const template: Electron.MenuItemConstructorOptions[] = [
+/**
+ * The application menu as a template. `platform` is a parameter so
+ * the test can build it for all three platforms
+ * (`test/appMenuShortcuts.test.ts`).
+ */
+export function appMenuTemplate(
+  platform: NodeJS.Platform = process.platform,
+): Electron.MenuItemConstructorOptions[] {
+  const isMac = platform === "darwin";
+  return [
     // macOS app menu (top-left, next to the Apple). Ignored on
     // win/linux — those platforms don't have an "app menu" concept.
     ...(isMac
@@ -585,7 +608,11 @@ function buildAppMenu(): Electron.Menu {
               { type: "separator" },
               { role: "front" },
             ] as Electron.MenuItemConstructorOptions[])
-          : ([{ role: "close" }] as Electron.MenuItemConstructorOptions[])),
+          : []),
+        // Task 118 — no `{ role: "close" }` on Windows/Linux. Electron
+        // gives that role Ctrl+W, the same keys as "Close Tab" above,
+        // and the role won: Ctrl+W closed the window, and with one
+        // window the whole app. Alt+F4 closes the window there.
       ],
     },
     {
@@ -615,7 +642,10 @@ function buildAppMenu(): Electron.Menu {
       ],
     },
   ];
-  return Menu.buildFromTemplate(template);
+}
+
+function buildAppMenu(): Electron.Menu {
+  return Menu.buildFromTemplate(appMenuTemplate());
 }
 
 // -----------------------------------------------------------------------------

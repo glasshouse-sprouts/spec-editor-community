@@ -1105,11 +1105,13 @@ function ProjectView({
              *  without a clock (owner's decision 2026-09-21).
              *
              *  Note that this is a presentation choice, not a property
-             *  of the data: the synthetic fixtures in the repo all sit
-             *  at exactly midnight UTC, but a real Molio-produced file
-             *  carries a measured time ("2026-04-10 10:00:06.8455715").
-             *  For such a file the time of day is dropped here on
-             *  purpose - the creation DAY is what a reader wants, and
+             *  of the data. Since Task 159 a project made in this app
+             *  gets its real creation instant ("...T11:03:02.123Z"),
+             *  and Molio-produced files carry a measured time too
+             *  ("2026-04-10 10:00:06.8455715"); only files made before
+             *  159 hold the template's midnight-UTC placeholder. The
+             *  time of day is dropped on purpose - the creation DAY,
+             *  in Danish time, is what a reader wants, and
              *  a clock on this row invites the reader to compare it
              *  with "Senest ændret", which is the row that actually
              *  tracks a moment. */}

@@ -21,7 +21,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { CoreError, parseCoreErrorMessage } from "@molio2-editor/core";
+import {
+  CoreError,
+  parseCoreErrorMessage,
+  SectionBodyTooLongError,
+} from "@molio2-editor/core";
 
 import {
   friendlyError,
@@ -105,6 +109,21 @@ describe("friendlyErrorForDialog", () => {
     setLocale("en");
     const err = new Error("totally unexpected");
     expect(friendlyErrorForDialog(err)).toBe("totally unexpected");
+  });
+
+  it("explains SECTION_BODY_TOO_LONG in Danish, not as the raw key (Task 197)", () => {
+    setLocale("da");
+    // What core throws when a body passes SECTION_BODY_MAX_LENGTH.
+    const err = new SectionBodyTooLongError(25_000_000, 20_971_520);
+    const out = friendlyError(err, "Kunne ikke gemme filen");
+    expect(out).toContain("Et afsnit er for langt til at blive gemt");
+    expect(out).toContain("Del teksten over flere afsnit");
+    expect(out).not.toContain("errors.code");
+    expect(out).not.toContain("SECTION_BODY_TOO_LONG");
+    setLocale("en");
+    expect(friendlyErrorForDialog(err)).toContain(
+      "A section is too long to be saved",
+    );
   });
 
   it("respects the active locale (Danish)", () => {

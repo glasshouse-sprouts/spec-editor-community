@@ -11,6 +11,9 @@
  *     We mount extensions for these so existing file content survives the
  *     round-trip into TipTap's schema and back. Users can't *create* new
  *     images / tables in this slice; richer nodes land in 6L.4 / 6L.5a.
+ *   - Also preserved, with no toolbar: h1-h6, blockquote, pre, sub, sup
+ *     (Task 138, `editorPreservedFormatting.ts`). The extension list
+ *     itself lives in `sectionEditorExtensions.ts`.
  *   - Everything else in the Molio whitelist is still enforced at save by
  *     DOMPurify as a belt-and-braces check.
  *
@@ -26,9 +29,6 @@
 
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { BubbleMenu, FloatingMenu } from "@tiptap/react/menus";
-import { Image } from "@tiptap/extension-image";
-import { Table, TableRow } from "@tiptap/extension-table";
-import StarterKit from "@tiptap/starter-kit";
 import {
   Bold as BoldIcon,
   Highlighter as HighlighterIcon,
@@ -45,14 +45,8 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import {
-  BgColor,
-  MolioTableCell,
-  MolioTableHeader,
-  PALETTE_COLORS,
-  TextColor,
-  type PaletteColor,
-} from "./editorMarks.js";
+import { PALETTE_COLORS, type PaletteColor } from "./editorMarks.js";
+import { sectionEditorExtensions } from "./sectionEditorExtensions.js";
 import {
   extractImageFiles,
   handleImageDrop,
@@ -228,73 +222,7 @@ export function SectionEditor({
   };
 
   const editor = useEditor({
-    extensions: [
-      // StarterKit = document + paragraph + text + bold + italic + strike
-      // + lists + history + hardBreak (and a few we don't want). Disable
-      // the Molio-disallowed ones so the toolbar can't produce them and
-      // schema-level validation rejects pasted content. Strike is kept
-      // ON — 6L.1 introduced it to the whitelist.
-      StarterKit.configure({
-        blockquote: false,
-        code: false,
-        codeBlock: false,
-        heading: false,
-        horizontalRule: false,
-        // 6L.2 — external URL links. StarterKit bundles
-        // `@tiptap/extension-link`; we tune its defaults:
-        //   - `openOnClick: false` — during editing, clicking a link
-        //     should move the caret, not open the URL in Electron.
-        //     Opening is a reader-mode (#72 Icebox) concern.
-        //   - `defaultProtocol: "https"` — if autolink sees a bare
-        //     "example.com", treat it as https rather than http.
-        //   - `protocols: ["mailto"]` — add mailto to the built-in
-        //     http/https set (they're always included regardless).
-        //   - `autolink: true` (default) — convert typed / pasted
-        //     URLs into links automatically.
-        //   - We deliberately do NOT set target/rel; our sanitizer
-        //     strips them anyway, and without a target="_blank" the
-        //     rel="noopener" wouldn't do anything in the PDF either.
-        link: {
-          openOnClick: false,
-          defaultProtocol: "https",
-          protocols: ["mailto"],
-        },
-      }),
-      // 6L.1 custom class-based marks (see editorMarks.ts for why not
-      // extension-color / extension-highlight).
-      TextColor,
-      BgColor,
-      // 6L.5a — inline base64 images. `allowBase64` lets TipTap accept
-      // `data:image/...;base64,...` URLs (the default schema rejects
-      // them as scripted). `inline: false` makes `<img>` a block node
-      // wrapped in a paragraph — matches our sanitizer rule that images
-      // live at the paragraph level, not inline with text.
-      //
-      // 6L.5a.4 — enable drag-to-resize handles on the four corners.
-      // `alwaysPreserveAspectRatio: true` locks the aspect ratio to the
-      // image's natural ratio (no squishing). The commit writes `width`
-      // (and `height`) back to the node's attrs; the sanitizer strips
-      // `height` on save so the browser / pdfmake re-derive it from the
-      // natural aspect ratio at render time — that keeps stored HTML
-      // small and avoids aspect-mismatch bugs if the source image is
-      // ever swapped. `minWidth: 50` keeps the handles grabbable.
-      Image.configure({
-        allowBase64: true,
-        inline: false,
-        resize: {
-          enabled: true,
-          alwaysPreserveAspectRatio: true,
-          minWidth: 50,
-          minHeight: 50,
-        },
-      }),
-      // 6L.4 — enable column resize + use our custom cell nodes so
-      // widths round-trip via `data-width` instead of inline `style`.
-      Table.configure({ resizable: true }),
-      TableRow,
-      MolioTableHeader,
-      MolioTableCell,
-    ],
+    extensions: sectionEditorExtensions(),
     content: initialHtml,
     // Phase 8 round 2 — Reader mode (Læsetilstand). When the
     // surrounding component flips this off, TipTap mounts read-only
