@@ -44,6 +44,7 @@ export type CoreErrorCode =
   | "IO_WAL_CHECKPOINT_FAILED"
   | "IO_MIGRATION_FAILED"
   | "IO_LEGACY_FILE_READ_ONLY"
+  | "SECTION_BODY_TOO_LONG"
   | "INTERNAL";
 
 export type CoreErrorParamValue = string | number | boolean;

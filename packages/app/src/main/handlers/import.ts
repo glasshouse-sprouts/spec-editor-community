@@ -54,10 +54,14 @@ import {
 import { saveAsSelfWrite } from "../fileWatcher.js";
 import { openForInPlaceWrite } from "./openForInPlaceWrite.js";
 import { preflight, safeMtimeMs } from "./shared.js";
+import { assertMoliospecPath } from "../pathGuards.js";
 
 ipcMain.handle(
   "import:precheck",
   async (_event, req: ImportPrecheckRequest): Promise<ImportPrecheckResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.sourcePath, "sourcePath");
+    assertMoliospecPath(req.targetPath, "targetPath");
     console.log("[main] importPrecheck:", {
       source: req.sourcePath,
       target: req.targetPath,
@@ -114,6 +118,8 @@ ipcMain.handle(
     _event,
     req: ReadImportSourceRequest,
   ): Promise<ReadImportSourceResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.sourcePath, "sourcePath");
     console.log("[main] readImportSource:", req.sourcePath);
     const mtime = await safeMtimeMs(req.sourcePath);
     if (mtime === null) return { kind: "missing" };
@@ -160,6 +166,9 @@ ipcMain.handle(
 ipcMain.handle(
   "import:apply",
   async (_event, req: ImportApplyRequest): Promise<ImportApplyResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.sourcePath, "sourcePath");
+    assertMoliospecPath(req.path);
     console.log("[main] importApply:", {
       source: req.sourcePath,
       target: req.path,
@@ -232,6 +241,9 @@ ipcMain.handle(
     _event,
     req: FillEmptyWorkSpecRequest,
   ): Promise<FillEmptyWorkSpecResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.sourcePath, "sourcePath");
+    assertMoliospecPath(req.path);
     console.log("[main] fillEmptyWorkSpec:", {
       source: req.sourcePath,
       target: req.path,

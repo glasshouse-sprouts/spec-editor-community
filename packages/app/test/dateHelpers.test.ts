@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatDate,
+  formatInstant,
   formatTimestamp,
+  todayDate,
 } from "../src/renderer/src/dateHelpers.js";
 
 /**
@@ -113,5 +115,38 @@ describe("formatDate", () => {
   it("returns null for an unusable value", () => {
     expect(formatDate(null)).toBeNull();
     expect(formatDate("not a date")).toBeNull();
+  });
+});
+
+describe("formatInstant (Task 144, recent files)", () => {
+  it("uses +01:00 in January", () => {
+    expect(formatInstant(Date.UTC(2026, 0, 15, 23, 30))).toBe(
+      "2026-01-16 - 00:30",
+    );
+  });
+
+  it("uses +02:00 in July", () => {
+    expect(formatInstant(Date.UTC(2026, 6, 15, 23, 30))).toBe(
+      "2026-07-16 - 01:30",
+    );
+  });
+
+  it("returns null instead of Invalid Date", () => {
+    expect(formatInstant(Number.NaN)).toBeNull();
+    expect(formatInstant(null)).toBeNull();
+    expect(formatInstant(undefined)).toBeNull();
+  });
+});
+
+describe("todayDate (Task 144, the date on a PDF)", () => {
+  it("is the Danish day, not the UTC day, just after midnight in January", () => {
+    // 23:30 UTC on 15 January is 00:30 on 16 January in Copenhagen.
+    // toISOString().slice(0, 10) used to say "2026-01-15".
+    expect(todayDate(Date.UTC(2026, 0, 15, 23, 30))).toBe("2026-01-16");
+  });
+
+  it("is the Danish day, not the UTC day, just after midnight in July", () => {
+    expect(todayDate(Date.UTC(2026, 6, 15, 22, 30))).toBe("2026-07-16");
+    expect(todayDate(Date.UTC(2026, 6, 15, 21, 30))).toBe("2026-07-15");
   });
 });

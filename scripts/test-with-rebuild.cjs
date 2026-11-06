@@ -44,6 +44,35 @@ const path = require("node:path");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 
+/**
+ * How to start npm without a shell (card 171).
+ *
+ * On Windows npm is `npm.cmd`, and spawning "npm" without a shell
+ * fails with ENOENT. Spawning "npm.cmd" does not help: since the fix
+ * for CVE-2024-27980 (Node 18.20.2, 20.12.2, all of 22) Node refuses
+ * to spawn a .cmd or .bat file without `shell: true` (EINVAL), and the
+ * Node versions in `engines` all have that fix. A shell is what we
+ * want to avoid.
+ *
+ * So we run npm's own JavaScript entry point with the Node that runs
+ * this script. `npm test` puts its path in `npm_execpath`. Run outside
+ * npm (`node scripts/test-with-rebuild.cjs`), we fall back to "npm",
+ * which works on macOS and Linux.
+ */
+function npmCommand(args) {
+  const npmCli = process.env.npm_execpath;
+  if (npmCli && /\.c?js$/.test(npmCli)) {
+    return [process.execPath, [npmCli, ...args]];
+  }
+  return ["npm", args];
+}
+
+/** Run npm, inherit stdio so the user sees real-time output. */
+function npm(args) {
+  const [cmd, cmdArgs] = npmCommand(args);
+  return run(cmd, cmdArgs);
+}
+
 /** Spawn a command, inherit stdio so the user sees real-time output. */
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -62,19 +91,23 @@ async function rebuildForSystemNode() {
   console.log(
     "\n[test-with-rebuild] step 1/3 — rebuilding better-sqlite3 for system Node…",
   );
-  return run("npm", ["rebuild", "better-sqlite3", "--build-from-source"]);
+  // No --build-from-source (card 171): better-sqlite3 ships prebuilt
+  // binaries for the Node versions we allow, and prebuild-install only
+  // compiles when none fits. Compiling on Windows needs Visual Studio's
+  // C++ tools.
+  return npm(["rebuild", "better-sqlite3"]);
 }
 
 async function rebuildForElectron() {
   console.log(
     "\n[test-with-rebuild] step 3/3 — rebuilding better-sqlite3 for Electron…",
   );
-  return run("npm", ["run", "rebuild-native", "-w", "@molio2-editor/app"]);
+  return npm(["run", "rebuild-native", "-w", "@molio2-editor/app"]);
 }
 
 async function runTestsViaWorkspaces() {
   console.log("\n[test-with-rebuild] step 2/3 — running test suite…");
-  return run("npm", ["run", "test", "--workspaces", "--if-present"]);
+  return npm(["run", "test", "--workspaces", "--if-present"]);
 }
 
 async function main() {

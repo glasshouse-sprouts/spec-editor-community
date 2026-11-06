@@ -41,6 +41,10 @@ import {
   writeCompanyName,
   type KeyValueStore,
 } from "../src/renderer/src/companyNamePrefs.js";
+import type {
+  CoverActiveTemplate,
+  CoverApply,
+} from "../src/renderer/src/coverContext.js";
 import { buildBytesFor, buildTargets } from "../src/renderer/src/ExportCard.js";
 import { buildBytesForCompositeJob } from "../src/renderer/src/executeCompositeExport.js";
 import {
@@ -290,5 +294,82 @@ describe("the export passes the company name to the PDF builders", () => {
       };
       expect(args.cover.companyName ?? null).toBe(expected);
     }
+  });
+});
+
+describe("a custom cover gets the same company name as the footer (Task 190)", () => {
+  /**
+   * A stand-in for the cover engine (the real one is bskriver-only and
+   * lives in cover/). It records what the export hands it; the engine
+   * itself prints `ctx.companyName` - see coverSessionPerProject.test.
+   */
+  function recordingCover(): {
+    cover: CoverApply;
+    seen: Array<string | null>;
+  } {
+    const seen: Array<string | null> = [];
+    return {
+      seen,
+      cover: {
+        active: {} as CoverActiveTemplate,
+        apply: async (_active, bytes, ctx) => {
+          seen.push(ctx.companyName);
+          return bytes;
+        },
+      },
+    };
+  }
+
+  for (const [kind, fn] of [
+    ["workSpec", renderSpecPdf],
+    ["bdb", renderSpecPdf],
+    ["cp", renderCpPdf],
+  ] as const) {
+    it(`single ${kind}: cover and footer print the Settings value`, async () => {
+      const data = payload();
+      const target = buildTargets(data).find((t) => t.kind === kind)!;
+      for (const companyName of [COMPANY, null]) {
+        fn.mockClear();
+        const { cover, seen } = recordingCover();
+        await buildBytesFor(data, target, {
+          includeCoverPage: true,
+          compact: false,
+          companyName,
+          cover,
+        });
+        const footer = (fn.mock.calls[0]![0] as { companyName?: string | null })
+          .companyName;
+        expect(seen).toEqual([companyName]);
+        expect(footer ?? null).toBe(companyName);
+      }
+    });
+  }
+
+  it("composite: cover and footer print the Settings value", async () => {
+    const data = payload();
+    const sel = emptySelection();
+    sel.workAreas.add(10);
+    const job = buildPdfExportJobs({
+      data,
+      tree: buildExportTree(data),
+      selection: sel,
+      groupBy: "perContract",
+    }).find(
+      (j): j is Extract<PdfExportJob, { kind: "composite" }> =>
+        j.kind === "composite",
+    )!;
+    renderCompositePdf.mockClear();
+    const { cover, seen } = recordingCover();
+    await buildBytesForCompositeJob(data, job, {
+      includeCoverPage: true,
+      compact: false,
+      companyName: COMPANY,
+      cover,
+    });
+    const args = renderCompositePdf.mock.calls[0]![0] as {
+      cover: { companyName?: string | null };
+    };
+    expect(seen).toEqual([COMPANY]);
+    expect(args.cover.companyName).toBe(COMPANY);
   });
 });

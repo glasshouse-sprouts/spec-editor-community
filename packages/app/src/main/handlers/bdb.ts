@@ -40,10 +40,13 @@ import {
 import { saveAsSelfWrite } from "../fileWatcher.js";
 import { openForInPlaceWrite } from "./openForInPlaceWrite.js";
 import { preflight, safeMtimeMs, withHandleForWrite } from "./shared.js";
+import { assertMoliospecPath } from "../pathGuards.js";
 
 ipcMain.handle(
   Channels.duplicateBdb,
   async (_event, req: DuplicateBdbRequest): Promise<DuplicateBdbResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] duplicateBdb:", {
       path: req.path,
       bdbId: req.bdbId,
@@ -80,6 +83,8 @@ ipcMain.handle(
     _event,
     req: CreatePfbbChildRequest,
   ): Promise<CreatePfbbChildResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] createPfbbChild:", {
       path: req.path,
       masterId: req.masterId,
@@ -116,6 +121,8 @@ ipcMain.handle(
     _event,
     req: MigrateOrphanPfbbMastersRequest,
   ): Promise<MigrateOrphanPfbbMastersResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] migrateOrphanPfbbMasters:", { path: req.path });
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -170,6 +177,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.deleteWorkArea,
   async (_event, req: DeleteWorkAreaRequest): Promise<DeleteWorkAreaResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] deleteWorkArea:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -197,6 +206,8 @@ ipcMain.handle(
 ipcMain.handle(
   Channels.deleteBdb,
   async (_event, req: DeleteBdbRequest): Promise<DeleteBdbResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     console.log("[main] deleteBdb:", req);
     const pre = await preflight(req.path, req.storedMtimeMs, req.force);
     if (pre) return pre;
@@ -227,6 +238,8 @@ ipcMain.handle(
     _event,
     req: GetDeleteImpactRequest,
   ): Promise<GetDeleteImpactResult> => {
+    // Task 106: main does not trust a path from the renderer.
+    assertMoliospecPath(req.path);
     // Read-only — no mtime check, no saveAs, no force. If the file
     // disappeared between renderer and main, report `missing`.
     const stillThere = await safeMtimeMs(req.path);

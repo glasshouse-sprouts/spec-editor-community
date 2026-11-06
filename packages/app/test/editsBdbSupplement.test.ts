@@ -226,7 +226,6 @@ describe("getEffectiveBdbSupplementBody", () => {
         pfbbSectionId: masterSection,
         existingSectionId: 99,
         originalBody: "<p>disk</p>",
-        originalBody: "<p>disk</p>",
       }),
     ).toBe("<p>disk</p>");
   });
@@ -237,7 +236,6 @@ describe("getEffectiveBdbSupplementBody", () => {
         bdbId: child,
         pfbbSectionId: masterSection,
         existingSectionId: null,
-        originalBody: null,
         originalBody: null,
       }),
     ).toBe("");
@@ -258,7 +256,6 @@ describe("getEffectiveBdbSupplementBody", () => {
         pfbbSectionId: masterSection,
         existingSectionId: null,
         originalBody: null,
-        originalBody: null,
       }),
     ).toBe("<p>staged</p>");
   });
@@ -277,7 +274,6 @@ describe("getEffectiveBdbSupplementBody", () => {
         bdbId: child,
         pfbbSectionId: masterSection,
         existingSectionId: 99,
-        originalBody: "<p>disk</p>",
         originalBody: "<p>disk</p>",
       }),
     ).toBe("");

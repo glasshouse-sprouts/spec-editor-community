@@ -8,6 +8,7 @@
 export * from "./types.js";
 export {
   CoreError,
+  SectionBodyTooLongError,
   parseCoreErrorMessage,
   type CoreErrorCode,
   type CoreErrorParams,
@@ -31,6 +32,28 @@ export {
 // makes the patch fail. Anything added before it just shifts the line
 // numbers, which patch handles.
 export { canonicalPath, samePath } from "./paths.js";
+// Task 105 - DOM-free allowlist sanitizer for section bodies, applied
+// by applyEdits to every body write. The allowlist is exported for the
+// parity test against the renderer's copy.
+export { sanitizeSectionBody } from "./sanitizeSectionBody.js";
+export {
+  SECTION_BODY_ALLOWED_TAGS,
+  SECTION_BODY_ALLOWED_ATTRS,
+  SECTION_BODY_MAX_LENGTH,
+  ALLOWED_CLASSES_BY_TAG as SECTION_BODY_ALLOWED_CLASSES,
+  isAllowedAttribute,
+} from "./sectionBodyAllowlist.js";
+// Task 192 - the editor's userData folder name and the MCP state
+// folder name, packaged vs dev. Shared by main and the MCP server.
+export {
+  EDITOR_DEV_PROFILE_ENV,
+  DEFAULT_EDITOR_DEV_PROFILE,
+  MCP_STATE_DIR,
+  readEditorDevProfile,
+  editorDevProfile,
+  editorUserDataDirName,
+  mcpStateDirName,
+} from "./editorDataDir.js";
 // Task 155 - fiksdato -> versionDate for the reference-list lookup.
 // Not under molio-api/: it is pure date arithmetic, not API client
 // code. Main and the MCP server import it; the renderer must not
@@ -43,6 +66,7 @@ export {
   type ReferencelistDateResolution,
   type ReferencelistDateSource,
 } from "./referencelistDate.js";
+export * from "./referencelistDateText.js"; // card 188, shared with MCP
 export {
   readMoliospec,
   readDbVersion,

@@ -32,6 +32,7 @@ import { basename } from "./fileUtils.js";
 import { useT } from "./i18n/i18n.js";
 import type { RecentFileEntry } from "./recentFiles.js";
 import { formatTimeAgo } from "./timeAgo.js";
+import { formatInstant } from "./dateHelpers.js";
 
 interface Props {
   /** The persisted recent-files list (newest first). May be empty on
@@ -205,7 +206,7 @@ function RecentRow({
       </div>
       <span
         className="welcome-screen__recent-opened"
-        title={new Date(entry.openedAt).toLocaleString()}
+        title={formatInstant(entry.openedAt) ?? undefined}
       >
         {opened}
       </span>

@@ -220,6 +220,7 @@
   "errors.code.IO_WAL_CHECKPOINT_FAILED": "Filen kunne ikke gemmes, fordi de seneste ændringer ikke kunne skrives færdigt til databasen. Prøv igen; din eksisterende fil er urørt.",
   "errors.code.IO_MIGRATION_FAILED": "Filen er i et ældre format ({fromVersion}), og opgraderingen til {toVersion} kunne ikke gennemføres. Din oprindelige fil er urørt.",
   "errors.code.IO_LEGACY_FILE_READ_ONLY": "Filen er i et ældre format ({fromVersion}) og kan ikke ændres direkte. Vælg Gem som for at gemme den som en ny fil i format {toVersion}; derefter kan du redigere frit. Din oprindelige fil bliver ikke ændret.",
+  "errors.code.SECTION_BODY_TOO_LONG": "Et afsnit er for langt til at blive gemt. Del teksten over flere afsnit, eller fjern nogle af de indsatte billeder, som fylder mest. Dine ændringer er ikke gemt endnu.",
   "errors.code.INTERNAL": "Noget gik galt internt i programmet — rapportér venligst. Tekniske detaljer: {debug}",
   "errors.system.EACCES": "Adgang nægtet. Filen kan være skrivebeskyttet eller tilhøre en anden bruger.",
   "errors.system.EPERM": "Adgang nægtet. Tjek filens tilladelser og prøv igen.",

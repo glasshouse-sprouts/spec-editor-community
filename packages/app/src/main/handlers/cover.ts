@@ -32,6 +32,7 @@ import type {
   CoverSaveTemplateRequest,
   CoverSaveTemplateResult,
 } from "../../shared/ipc.js";
+import { assertCoverTemplatePath, assertMoliospecPath } from "../pathGuards.js";
 
 const EXT = ".speccustom";
 
@@ -47,6 +48,9 @@ ipcMain.handle(
   ): Promise<CoverFindSiblingResult> => {
     const moliospecPath = req?.moliospecPath ?? "";
     if (!moliospecPath) return { kind: "none" };
+    // Task 106: this lists a folder, so the folder must be a real
+    // Molio file's - not any folder the renderer names.
+    assertMoliospecPath(moliospecPath, "moliospecPath");
     try {
       const dir = dirname(moliospecPath);
       const entries = await readdir(dir);
@@ -76,6 +80,8 @@ ipcMain.handle(
     if (!path.toLowerCase().endsWith(EXT)) {
       return { kind: "error", message: `Not a ${EXT} file.` };
     }
+    // Task 106: also absolute, no NUL, no "..".
+    assertCoverTemplatePath(path);
     try {
       const buf = await readFile(path);
       return { kind: "ok", bytes: new Uint8Array(buf) };

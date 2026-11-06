@@ -60,6 +60,7 @@ export type CoreErrorCode =
   | "IO_WAL_CHECKPOINT_FAILED"
   | "IO_MIGRATION_FAILED"
   | "IO_LEGACY_FILE_READ_ONLY"
+  | "SECTION_BODY_TOO_LONG"
   // --- Engineering invariants (generic copy) ---
   | "INTERNAL";
 
@@ -85,6 +86,25 @@ export class CoreError extends Error {
     this.name = "CoreError";
     this.code = code;
     this.params = params;
+  }
+}
+
+/**
+ * A section body longer than `SECTION_BODY_MAX_LENGTH` was refused by
+ * `applyEdits` (Task 105). Typed so the MCP server can recognise it
+ * with `instanceof` and tell the AI what to do; across the IPC
+ * boundary it is the code `SECTION_BODY_TOO_LONG` with the params
+ * `length` and `limit`.
+ */
+export class SectionBodyTooLongError extends CoreError {
+  readonly length: number;
+  readonly limit: number;
+
+  constructor(length: number, limit: number, debug = "") {
+    super("SECTION_BODY_TOO_LONG", { length, limit }, debug);
+    this.name = "SectionBodyTooLongError";
+    this.length = length;
+    this.limit = limit;
   }
 }
 

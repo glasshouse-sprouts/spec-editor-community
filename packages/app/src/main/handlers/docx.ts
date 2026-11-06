@@ -22,6 +22,7 @@ import {
   type SaveDocxResult,
 } from "../../shared/ipc.js";
 import { dedupeAgainstDisk } from "../../shared/pdfExportUtils.js";
+import { assertSafeFileBase } from "../pathGuards.js";
 
 ipcMain.handle(
   Channels.saveDocx,
@@ -67,6 +68,10 @@ ipcMain.handle(
   "docx:save-batch",
   async (_event, req: SaveDocxBatchRequest): Promise<SaveDocxBatchResult> => {
     const items = Array.isArray(req.items) ? req.items : [];
+    // Task 106: the file names come from the renderer. Refuse the whole
+    // batch, before the folder dialog, if any of them is not a plain
+    // file name (e.g. "../x" or "a/b").
+    for (const it of items) assertSafeFileBase(it?.fileBase);
     console.log("[main] saveDocxBatch:", { count: items.length });
     if (items.length === 0) {
       return { kind: "error", message: "Nothing to export." };
@@ -108,8 +113,9 @@ ipcMain.handle(
       const errors: Array<{ fileBase: string; message: string }> = [];
       for (let i = 0; i < items.length; i++) {
         const item = items[i]!;
-        const safeBase = finalBases[i] ?? item.fileBase;
-        const fullPath = join(directory, `${safeBase}.docx`);
+        // Checked above with assertSafeFileBase; dedupe only adds " (n)".
+        const dedupedBase = finalBases[i] ?? item.fileBase;
+        const fullPath = join(directory, `${dedupedBase}.docx`);
         try {
           await writeFile(fullPath, item.bytes);
           written.push(fullPath);

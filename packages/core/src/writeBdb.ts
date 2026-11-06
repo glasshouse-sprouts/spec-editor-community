@@ -171,10 +171,15 @@ export interface DuplicateBdbResult {
  *   - Identity GUIDs (molio_construction_element_spec_guid and its
  *     revision GUID): cleared to NULL on the copy. The duplicate is a
  *     new BDB in this project, not known to Molio's registry.
- *   - Control-plan links (controlplan_design_id / _production_id +
- *     common_controlplan_*_guid): cleared to NULL. A copy should NOT
- *     silently share a CP with the original, and copying a CP is a
- *     bigger decision (we'd have to ask the user, at minimum).
+ *   - Local control-plan links (controlplan_design_id / _production_id):
+ *     cleared to NULL. A copy should NOT silently share a CP with the
+ *     original, and copying a CP is a bigger decision (we'd have to ask
+ *     the user, at minimum).
+ *   - Common control-plan GUIDs (common_controlplan_design_guid /
+ *     _production_guid): KEPT (Task 139). They point at a control plan
+ *     Molio has published, and that reference holds for the copy too.
+ *     Clearing them lost it for good. Molio's draft 01.01.00 spec,
+ *     section 5.2 "Duplikeringsregler", says the same.
  *   - Sections: every construction_element_spec_section row is copied
  *     with new primary keys. The self-referential `parent_id` is
  *     rewritten to point at the new ids via an id map.
@@ -230,7 +235,7 @@ export function duplicateBdb(
           ?, ?,
           ?, ?,
           null, null,
-          null, null,
+          ?, ?,
           null, null,
           ?, ?,
           ?, ?,
@@ -251,6 +256,8 @@ export function duplicateBdb(
         bdb["approved_by"] as string | null,
         bdb["molio_spec_guid"] as string | null,
         bdb["molio_spec_revision_guid"] as string | null,
+        bdb["common_controlplan_design_guid"] as string | null,
+        bdb["common_controlplan_production_guid"] as string | null,
         bdb["molio_referencelist_area"] as string | null,
         bdb["issue_date"] as string | null,
         bdb["molio_spec_revision_no"] as string | null,

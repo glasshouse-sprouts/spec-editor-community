@@ -50,6 +50,7 @@
  * across contracts in a project) is left to the executor via the
  * shared `dedupeFileBases` helper.
  */
+import { sanitiseFilePart } from "../../shared/fileNames.js";
 import type { FilePayload } from "../../shared/ipc.js";
 import type {
   ExportSelection,
@@ -143,10 +144,12 @@ export interface BuildPdfExportJobsArgs {
  * Exported so the Word export (`useDocxExport`) can use exactly the
  * same rule — guarantees PDF and Word filenames for the same spec
  * are identical except for the `.pdf` / `.docx` extension.
+ *
+ * Task 106: the function now lives in `shared/fileNames.ts`, so main
+ * refuses a file name with exactly the characters this removes.
+ * Re-exported here so existing imports keep working.
  */
-export function sanitiseFilePart(s: string): string {
-  return s.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/[‒–—―−]/g, "-");
-}
+export { sanitiseFilePart };
 
 /**
  * Build the list of PDF jobs for the current selection + groupBy.

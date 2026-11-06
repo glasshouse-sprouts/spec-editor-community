@@ -31,6 +31,7 @@ import {
   type PdfChromeArgs,
 } from "./pdfChrome.js";
 import { specDocumentType } from "./documentTypes.js";
+import { todayDate } from "../dateHelpers.js";
 
 /** Kind of spec this PDF is for. Affects the "Kind" metadata label. */
 export type SpecKind = "workSpec" | "bdb";
@@ -362,7 +363,7 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
     workAreaName: workAreaName ?? null,
     documentLabel,
     companyName: companyName ?? null,
-    dateText: dateText ?? todayISO(),
+    dateText: dateText ?? todayDate(),
     revisionDateText: revisionDate ?? null,
   };
 
@@ -470,20 +471,6 @@ export function buildSpecPdf(args: BuildSpecPdfArgs): TDocumentDefinitions {
       creator: "Spec Editor Community",
     },
   };
-}
-
-/**
- * Today's date as ISO (YYYY-MM-DD). Used as the fallback when the
- * caller doesn't pass `dateText`. We match the format the renderer
- * already uses for `revisionDate` so both sides of the BIPS header
- * line up visually.
- */
-function todayISO(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 /**

@@ -53,6 +53,7 @@ import { stripHighlights } from "./highlights/stripHighlights.js";
 import type { VersionCompareEngine } from "./VersionCompareContext.js";
 import type { CoverApply, CoverExportContext } from "./coverContext.js";
 import type { VersionCompareFormat } from "./compare/versionCompareFormat.js";
+import { todayDate } from "./dateHelpers.js";
 
 // Re-export so existing callers (tests, etc.) that imported
 // `formatContractLabel` from this module keep working during the 7.3
@@ -345,7 +346,7 @@ export async function buildBytesFor(
   // built-in auto cover and wrap the finished body with the custom one.
   // `opts.cover` is undefined in Community → identical to before.
   const includeAutoCover = opts.cover ? false : opts.includeCoverPage;
-  const exportDate = new Date().toISOString().slice(0, 10);
+  const exportDate = todayDate();
   const applyCoverIf = (
     bytes: Uint8Array,
     ctx: CoverExportContext,
@@ -433,6 +434,7 @@ export async function buildBytesFor(
       projectName,
       projectNumber: data.project?.projectNumber ?? null,
       builder: data.project?.builder ?? null,
+      companyName,
       dateText: exportDate,
       specTitle: wsTitle,
       revision: ws.revision ?? null,
@@ -581,6 +583,7 @@ export async function buildBytesFor(
       projectName,
       projectNumber: data.project?.projectNumber ?? null,
       builder: data.project?.builder ?? null,
+      companyName,
       dateText: exportDate,
       specTitle: bdb.name || tStatic("exportCard.unnamedBdb"),
       revision: bdb.revision ?? null,
@@ -621,6 +624,7 @@ export async function buildBytesFor(
     projectName,
     projectNumber: data.project?.projectNumber ?? null,
     builder: data.project?.builder ?? null,
+    companyName,
     dateText: exportDate,
     specTitle: cp.title || tStatic("exportCard.untitledCp"),
     revision: null,
